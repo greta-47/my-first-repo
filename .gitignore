@@ -1,15 +1,11 @@
-.venv/
-__pycache__/
-*.pyc
-cd ~/my-first-repo
-git switch feat/healthz-endpoints
-
-# create .gitignore
-cat > .gitignore <<'EOF'
-# Python
+# Python & venv
 .venv/
 __pycache__/
 *.pyc
 
 # macOS
 .DS_Store
+
+# Editors (optional but harmless)
+.vscode/
+.idea/
