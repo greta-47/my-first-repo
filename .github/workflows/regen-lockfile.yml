@@ -34,13 +34,12 @@ jobs:
           pip-compile --generate-hashes -o requirements.lock.txt requirements.txt
           test -s requirements.lock.txt
 
-      # No manual git add/commit/push here.
-      # Let create-pull-request handle the commit identity and PR creation.
+      # Let the action handle commit+branch+PR (avoids git identity & push issues)
       - name: Open PR with updated lockfile
         uses: peter-evans/create-pull-request@v6
         with:
           title: "chore(ci): regenerate requirements.lock on linux for deterministic hashes"
-          commit-message: "chore(ci): regenerate requirements.lock.txt (Linux · Py3.11 · pip-tools 7.4.1)"
+          commit-message: "chore(ci): regenerate requirements.lock.txt (Linux · Py3.11 · pip==24.2 · pip-tools==7.4.1)"
           body: |
             Generated on GitHub Actions: Linux runner, Python 3.11, pip==24.2, pip-tools==7.4.1.
             Deterministic hashes for CI lockfile preflight.
