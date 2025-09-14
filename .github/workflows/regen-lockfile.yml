@@ -2,6 +2,11 @@ name: Lockfile Refresh (manual)
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch to run on (e.g., feature/x or chore/docs-csp)"
+        required: false
+        default: "main"
 
 permissions:
   contents: write
