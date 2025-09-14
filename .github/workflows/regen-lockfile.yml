@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   regen:
-    name: Compile hashed lockfile (Linux · Py3.11 · pip-tools 7.4.1)
+    name: Compile hashed lockfile (Linux · Py3.12 · pip-tools 7.4.1)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,9 +39,9 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           title: "chore(ci): regenerate requirements.lock on linux for deterministic hashes"
-          commit-message: "chore(ci): regenerate requirements.lock.txt (Linux · Py3.11 · pip==24.2 · pip-tools==7.4.1)"
+          commit-message: "chore(ci): regenerate requirements.lock.txt (Linux · Py3.12 · pip==24.2 · pip-tools==7.4.1)"
           body: |
-            Generated on GitHub Actions: Linux runner, Python 3.11, pip==24.2, pip-tools==7.4.1.
+            Generated on GitHub Actions: Linux runner, Python 3.12, pip==24.2, pip-tools==7.4.1.
             Deterministic hashes for CI lockfile preflight.
           branch: chore/lockfile-linux-refresh
           base: ${{ github.ref_name }}
