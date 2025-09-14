@@ -48,7 +48,9 @@ class SecurityHeadersMiddleware:
 
         await self.app(scope, receive, send_with_headers)
 
-    def _apply_headers(self, existing: Iterable[Iterable[bytes]], scheme: str) -> list[list[bytes]]:
+    def _apply_headers(
+        self, existing: Iterable[Iterable[bytes]], scheme: str
+    ) -> list[list[bytes]]:
         hdrs: list[list[bytes]] = [list(pair) for pair in existing]
 
         def set_header(name: str, value: str):
@@ -91,10 +93,16 @@ class EnforceHTTPSMiddleware:
 
         scheme = _scheme_from_scope(scope)
         host = _get_header(scope, b"host") or ""
-        is_localhost = host.startswith("localhost") or host.startswith("127.0.0.1") or host.startswith("0.0.0.0")
+        is_localhost = (
+            host.startswith("localhost")
+            or host.startswith("127.0.0.1")
+            or host.startswith("0.0.0.0")
+        )
 
         if scheme != "https" and not is_localhost:
-            resp = PlainTextResponse("HTTPS required", status_code=403, headers={"Connection": "close"})
+            resp = PlainTextResponse(
+                "HTTPS required", status_code=403, headers={"Connection": "close"}
+            )
             await resp(scope, receive, send)
             return
 
@@ -113,4 +121,3 @@ def _get_header(scope: Scope, name_lower_bytes: bytes) -> Optional[str]:
         if k.lower() == name_lower_bytes:
             return v.decode("latin-1")
     return None
-
