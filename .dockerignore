@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Envs & local
+.venv/
+.env
+.env.*
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Logs & misc
+*.log
+*.sqlite3
+
+# Node (if any)
+node_modules/
