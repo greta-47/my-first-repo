@@ -1,5 +1,5 @@
 # security_middleware.py
-from typing import Callable, Iterable, Tuple
+from typing import Iterable, Tuple
 from starlette.types import ASGIApp, Receive, Scope, Send
 from dataclasses import dataclass
 
@@ -7,6 +7,7 @@ from dataclasses import dataclass
 try:
     from settings import Settings  # expects .CSP_REPORT_ONLY: bool
 except Exception:
+
     @dataclass
     class Settings:
         CSP_REPORT_ONLY: bool = False
@@ -44,7 +45,12 @@ def build_docs_csp() -> str:
     return "; ".join(f"{k} {v}" for k, v in parts.items())
 
 
-DOCS_PATHS: Tuple[str, ...] = ("/docs", "/docs/", "/docs/oauth2-redirect", "/openapi.json")
+DOCS_PATHS: Tuple[str, ...] = (
+    "/docs",
+    "/docs/",
+    "/docs/oauth2-redirect",
+    "/openapi.json",
+)
 
 
 class SecurityHeadersMiddleware:
@@ -72,7 +78,9 @@ class SecurityHeadersMiddleware:
             if self.settings.CSP_REPORT_ONLY
             else b"content-security-policy"
         )
-        policy_value = (self._docs_csp if use_docs_csp else self._strict_csp).encode("utf-8")
+        policy_value = (self._docs_csp if use_docs_csp else self._strict_csp).encode(
+            "utf-8"
+        )
 
         async def send_wrapper(message):
             if message["type"] == "http.response.start":
@@ -82,7 +90,10 @@ class SecurityHeadersMiddleware:
                     (k, v)
                     for (k, v) in headers
                     if k.lower()
-                    not in (b"content-security-policy", b"content-security-policy-report-only")
+                    not in (
+                        b"content-security-policy",
+                        b"content-security-policy-report-only",
+                    )
                 ]
                 message = {
                     **message,
@@ -91,4 +102,3 @@ class SecurityHeadersMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_wrapper)
-
