@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a feature
+title: "[feat] "
+labels: ["type/task","enhancement"]
+body:
+  - type: textarea
+    id: value
+    attributes:
+      label: Value proposition
+      placeholder: Who benefits and how?
+    validations:
+      required: true
+  - type: textarea
+    id: user_story
+    attributes:
+      label: User story
+      placeholder: As a … I want … so that …
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: Bullet list of verifiable outcomes
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options: [priority/P0, priority/P1, priority/P2]
