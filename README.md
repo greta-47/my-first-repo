@@ -1,5 +1,7 @@
 # My First Repo
 
+A simple FastAPI application for RecoveryOS.
+
 ## Run locally
 ```bash
 python -m uvicorn api.main:app --reload
