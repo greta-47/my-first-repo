@@ -1,0 +1,27 @@
+name: Security Triage
+on:
+  issues:
+    types: [opened, labeled]
+permissions:
+  issues: write
+  contents: read
+jobs:
+  triage:
+    if: contains(github.event.issue.labels.*.name, 'security')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo, number} = context.issue;
+            await github.rest.issues.addLabels({owner, repo, issue_number: number, labels: ['priority/P0','status/todo']});
+            await github.rest.issues.addAssignees({owner, repo, issue_number: number, assignees: ['greta-47']});
+            const body = [
+              "Security triage checklist:",
+              "- [ ] Confirm reproducibility and scope",
+              "- [ ] Assign rough severity",
+              "- [ ] Create private fix branch",
+              "- [ ] Prepare patch/backports",
+              "- [ ] Draft disclosure notes"
+            ].join("\n");
+            await github.rest.issues.createComment({owner, repo, issue_number: number, body});
