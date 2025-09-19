@@ -1,0 +1,18 @@
+Search inventory for Python 3.11 references and version settings
+
+Command: rg -n "3\.11|python-3\.11|py311|3_11"
+Result: no matches
+
+Command: rg -n "python-version" .github/workflows
+Matches:
+/.github/workflows/regen-lockfile.yml:28:          python-version: "3.12"
+/.github/workflows/pr.yml:23:          python-version: "3.12"
+/.github/workflows/pr.yml:44:          python-version: "3.12"
+/.github/workflows/main.yml:25:          python-version: "3.12"
+
+Command: rg -n "(pyproject\.toml|\.python-version|\.tool-versions|Dockerfile|\.devcontainer|\.vscode/settings\.json|README|docs)"
+Summary of files present that may carry version settings:
+- .python-version
+- Dockerfile
+- README.md
+- docs/ (this file)
