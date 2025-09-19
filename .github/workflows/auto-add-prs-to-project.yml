@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PROJECT_ID: <PVT_kwHODXEMJs4BDHGE>
+      PROJECT_ID: PVT_kwHODXEMJs4BDHGE
     steps:
       - name: Add PR to Project V2 (GraphQL via gh)
         run: |
