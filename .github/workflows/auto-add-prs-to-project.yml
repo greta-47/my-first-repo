@@ -1,0 +1,26 @@
+name: Auto-add PRs to Project
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+      PROJECT_ID: <PVT_kwHODXEMJs4BDHGE>
+    steps:
+      - name: Add PR to Project V2 (GraphQL via gh)
+        run: |
+          gh api graphql -f query='
+            mutation($projectId:ID!, $contentId:ID!) {
+              addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
+                item { id }
+              }
+            }' \
+            -f projectId="$PROJECT_ID" \
+            -f contentId="${{ github.event.pull_request.node_id }}"
