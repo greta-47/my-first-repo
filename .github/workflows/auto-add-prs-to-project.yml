@@ -11,21 +11,16 @@ jobs:
   add:
     runs-on: ubuntu-latest
     env:
+      GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
       PROJECT_ID: <PVT_kwHODXEMJs4BDHGE>
     steps:
-      - name: Add PR to Project V2
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.PROJECTS_TOKEN }}
-          script: |
-            const projectId = process.env.PROJECT_ID
-            const nodeId = context.payload.pull_request.node_id
-            const mutation = `
-              mutation($projectId:ID!, $contentId:ID!) {
-                addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
-                  item { id }
-                }
+      - name: Add PR to Project V2 (GraphQL via gh)
+        run: |
+          gh api graphql -f query='
+            mutation($projectId:ID!, $contentId:ID!) {
+              addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
+                item { id }
               }
-            `
-            await github.graphql(mutation, { projectId, contentId: nodeId })
-            core.info(\`Added PR #\${context.payload.pull_request.number} to project \${projectId}\`)
+            }' \
+            -f projectId="$PROJECT_ID" \
+            -f contentId="${{ github.event.pull_request.node_id }}"
