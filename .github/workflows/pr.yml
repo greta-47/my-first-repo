@@ -24,7 +24,7 @@ jobs:
           cache: "pip"
       - name: Pin pip & pip-tools
         run: |
-          python -m pip install --upgrade --force-reinstall 'pip==24.2.1'
+          python -m pip install --upgrade --force-reinstall 'pip==24.2'
           python -m pip install 'pip-tools==7.4.1'
       - name: Compile temp lock
         run: |
