@@ -36,3 +36,4 @@ jobs:
               core.error(`GraphQL failed: ${e.message}`);
               core.setFailed("Add to Project failed");
             }
+
