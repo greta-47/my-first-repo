@@ -4,20 +4,18 @@ on:
   pull_request:
     types: [opened, reopened, ready_for_review]
 
-permissions:
-  contents: read
-  projects: write
+permissions: {}  # PAT supplies its own scopes
 
 jobs:
   add:
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID: PVT_xxxxxxxxxxxxxxxxxx   # <- put your real PVT_ ID here (no angle brackets)
+      PROJECT_ID: ${{ secrets.PROJECT_ID }}
     steps:
       - name: Add PR to Project V2
         uses: actions/github-script@v7
         with:
-          github-token: ${{ github.token }}
+          github-token: ${{ secrets.PROJECTS_TOKEN }}
           script: |
             const projectId = process.env.PROJECT_ID;
             const nodeId = context.payload.pull_request.node_id;
