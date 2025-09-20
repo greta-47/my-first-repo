@@ -2,7 +2,7 @@
 
 A simple FastAPI application for RecoveryOS.
 
-<!-- Test change to trigger auto-add workflow -->
+<!-- Test change to verify corrected auto-add workflow -->
 
 ## Run locally
 ```bash
