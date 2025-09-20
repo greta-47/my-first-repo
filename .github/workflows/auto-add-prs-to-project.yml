@@ -52,12 +52,21 @@ jobs:
                 }
               }`;
             const fields = (await github.graphql(fieldsQuery, { projectId })).node.fields.nodes;
+            
+            // Log available fields for debugging
+            core.info(`Available single-select fields: ${fields.map(f => f.name).join(', ')}`);
 
             function pick(fieldName, optionName) {
               const f = fields.find(x => x.name === fieldName);
-              if (!f) return null;
+              if (!f) {
+                core.info(`Field '${fieldName}' not found`);
+                return null;
+              }
               const o = f.options.find(o => o.name === optionName);
-              if (!o) return null;
+              if (!o) {
+                core.info(`Option '${optionName}' not found in field '${fieldName}'. Available options: ${f.options.map(opt => opt.name).join(', ')}`);
+                return null;
+              }
               return { fieldId: f.id, optionId: o.id, label: `${fieldName}=${optionName}` };
             }
 
