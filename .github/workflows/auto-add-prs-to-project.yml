@@ -71,4 +71,3 @@
             }
 
             core.setOutput("itemId", itemId);
-
