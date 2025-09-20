@@ -41,8 +41,11 @@ jobs:
                   ... on ProjectV2 {
                     fields(first:50){
                       nodes{
-                        id name dataType
-                        ... on ProjectV2SingleSelectField { options { id name } }
+                        ... on ProjectV2SingleSelectField { 
+                          id 
+                          name 
+                          options { id name } 
+                        }
                       }
                     }
                   }
@@ -51,7 +54,7 @@ jobs:
             const fields = (await github.graphql(fieldsQuery, { projectId })).node.fields.nodes;
 
             function pick(fieldName, optionName) {
-              const f = fields.find(x => x.name === fieldName && x.dataType === "SINGLE_SELECT");
+              const f = fields.find(x => x.name === fieldName);
               if (!f) return null;
               const o = f.options.find(o => o.name === optionName);
               if (!o) return null;
