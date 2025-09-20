@@ -2,6 +2,8 @@
 
 A simple FastAPI application for RecoveryOS.
 
+<!-- Test change to trigger auto-add workflow -->
+
 ## Run locally
 ```bash
 python -m uvicorn api.main:app --reload
