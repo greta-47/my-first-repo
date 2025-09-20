@@ -1,14 +1,17 @@
 name: Auto-add PRs to Project
 
 on:
-  pull_request:
-    types: [opened, reopened, ready_for_review]
+  # target => secrets available even for forked PRs; includes new commits
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
 
 # Using a PAT; no workflow-level permission keys required.
 permissions: {}
 
 jobs:
   add:
+    # optional safety: only run in your repo
+    if: github.repository_owner == 'greta-47'
     runs-on: ubuntu-latest
     env:
       PROJECT_ID: ${{ secrets.PROJECT_ID }}   # PVT_... from your Projects V2 board
@@ -19,8 +22,17 @@ jobs:
           github-token: ${{ secrets.PROJECTS_TOKEN }}  # classic PAT with scopes: repo, project
           script: |
             const projectId = process.env.PROJECT_ID;
-            const nodeId = context.payload.pull_request.node_id;
+            const pr = context.payload.pull_request;
+            if (!pr) { core.setFailed("No pull_request payload"); return; }
+            const nodeId = pr.node_id;
+
             const mutation =
               "mutation($projectId:ID!, $contentId:ID!) { addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) { item { id } } }";
-            await github.graphql(mutation, { projectId, contentId: nodeId });
-            core.info(`Added PR #${context.payload.pull_request.number} to project ${projectId}`);
+
+            try {
+              await github.graphql(mutation, { projectId, contentId: nodeId });
+              core.info(`Added PR #${pr.number} to project ${projectId}`);
+            } catch (e) {
+              core.error(`GraphQL failed: ${e.message}`);
+              core.setFailed("Add to Project failed");
+            }
