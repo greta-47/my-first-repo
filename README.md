@@ -10,3 +10,5 @@ curl -fsS http://127.0.0.1:8000/health
 Start Command: `uvicorn api.main:app --host 0.0.0.0 --port $PORT`
 
 Test hook: 2025-09-20T07:21:19Z
+
+Auto-add retry: 2025-09-20T09:22:41Z
