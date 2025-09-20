@@ -1,18 +1,3 @@
-name: Auto-add PRs to Project
-
-on:
-  pull_request_target:
-    types: [opened, reopened, ready_for_review, synchronize]
-
-permissions: {}
-
-jobs:
-  add:
-    if: github.repository_owner == 'greta-47'
-    runs-on: ubuntu-latest
-    env:
-      PROJECT_ID: ${{ secrets.PROJECT_ID }}   # PVT_... id
-    steps:
       - name: Add PR to Project V2
         id: add
         uses: actions/github-script@v7
@@ -34,24 +19,31 @@ jobs:
             const itemId = addRes.addProjectV2ItemById.item.id;
             core.info(`Added PR #${pr.number} as item ${itemId} to ${projectId}`);
 
-            // 2) Auto-set fields (Priority = P2 (Normal), Stage = Later) if they exist
+            // 2) Fetch ONLY single-select fields via inline fragment (union-safe)
             const fieldsQuery = `
               query($projectId:ID!){
                 node(id:$projectId){
                   ... on ProjectV2 {
                     fields(first:50){
                       nodes{
-                        id name dataType
-                        ... on ProjectV2SingleSelectField { options { id name } }
+                        __typename
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
+                          options { id name }
+                        }
                       }
                     }
                   }
                 }
               }`;
-            const fields = (await github.graphql(fieldsQuery, { projectId })).node.fields.nodes;
+
+            const res = await github.graphql(fieldsQuery, { projectId });
+            // Filter to the single-select nodes we actually received
+            const fields = res.node.fields.nodes.filter(n => n && n.__typename === "ProjectV2SingleSelectField");
 
             function pick(fieldName, optionName) {
-              const f = fields.find(x => x.name === fieldName && x.dataType === "SINGLE_SELECT");
+              const f = fields.find(x => x.name === fieldName);
               if (!f) return null;
               const o = f.options.find(o => o.name === optionName);
               if (!o) return null;
@@ -78,19 +70,5 @@ jobs:
               core.info(`Set ${d.label}`);
             }
 
-            // Expose itemId for later steps (output)
             core.setOutput("itemId", itemId);
 
-      - name: Comment on PR (confirmation)
-        if: success()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.PROJECTS_TOKEN }}
-          script: |
-            const pr = context.payload.pull_request;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr.number,
-              body: "✅ Added this PR to the project and set defaults (Priority: P2, Stage: Later)."
-            });
