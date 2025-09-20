@@ -1,39 +1,96 @@
 name: Auto-add PRs to Project
 
 on:
-  # target => secrets available even for forked PRs; includes new commits
   pull_request_target:
     types: [opened, reopened, ready_for_review, synchronize]
 
-# Using a PAT; no workflow-level permission keys required.
 permissions: {}
 
 jobs:
   add:
-    # optional safety: only run in your repo
     if: github.repository_owner == 'greta-47'
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID: ${{ secrets.PROJECT_ID }}   # PVT_... from your Projects V2 board
+      PROJECT_ID: ${{ secrets.PROJECT_ID }}   # PVT_... id
     steps:
       - name: Add PR to Project V2
+        id: add
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PROJECTS_TOKEN }}  # classic PAT with scopes: repo, project
+          github-token: ${{ secrets.PROJECTS_TOKEN }}  # classic PAT: repo, project
           script: |
-            const projectId = process.env.PROJECT_ID;
+            const projectId = process.env.PROJECT_ID?.trim();
             const pr = context.payload.pull_request;
+            if (!projectId || !projectId.startsWith("PVT_")) {
+              core.setFailed("PROJECT_ID missing/invalid (must start with PVT_)");
+              return;
+            }
             if (!pr) { core.setFailed("No pull_request payload"); return; }
-            const nodeId = pr.node_id;
 
-            const mutation =
+            // 1) Add the PR to the project
+            const addMutation =
               "mutation($projectId:ID!, $contentId:ID!) { addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) { item { id } } }";
+            const addRes = await github.graphql(addMutation, { projectId, contentId: pr.node_id });
+            const itemId = addRes.addProjectV2ItemById.item.id;
+            core.info(`Added PR #${pr.number} as item ${itemId} to ${projectId}`);
 
-            try {
-              await github.graphql(mutation, { projectId, contentId: nodeId });
-              core.info(`Added PR #${pr.number} to project ${projectId}`);
-            } catch (e) {
-              core.error(`GraphQL failed: ${e.message}`);
-              core.setFailed("Add to Project failed");
+            // 2) Auto-set fields (Priority = P2 (Normal), Stage = Later) if they exist
+            const fieldsQuery = `
+              query($projectId:ID!){
+                node(id:$projectId){
+                  ... on ProjectV2 {
+                    fields(first:50){
+                      nodes{
+                        id name dataType
+                        ... on ProjectV2SingleSelectField { options { id name } }
+                      }
+                    }
+                  }
+                }
+              }`;
+            const fields = (await github.graphql(fieldsQuery, { projectId })).node.fields.nodes;
+
+            function pick(fieldName, optionName) {
+              const f = fields.find(x => x.name === fieldName && x.dataType === "SINGLE_SELECT");
+              if (!f) return null;
+              const o = f.options.find(o => o.name === optionName);
+              if (!o) return null;
+              return { fieldId: f.id, optionId: o.id, label: `${fieldName}=${optionName}` };
             }
 
+            const desired = [
+              pick("Priority", "P2 (Normal)"),
+              pick("Stage", "Later"),
+            ].filter(Boolean);
+
+            const updateMutation = `
+              mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
+                updateProjectV2ItemFieldValue(input:{
+                  projectId:$projectId,itemId:$itemId,fieldId:$fieldId,
+                  value:{ singleSelectOptionId:$optionId }
+                }) { clientMutationId }
+              }`;
+
+            for (const d of desired) {
+              await github.graphql(updateMutation, {
+                projectId, itemId, fieldId: d.fieldId, optionId: d.optionId
+              });
+              core.info(`Set ${d.label}`);
+            }
+
+            // Expose itemId for later steps (output)
+            core.setOutput("itemId", itemId);
+
+      - name: Comment on PR (confirmation)
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECTS_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: "✅ Added this PR to the project and set defaults (Priority: P2, Stage: Later)."
+            });
