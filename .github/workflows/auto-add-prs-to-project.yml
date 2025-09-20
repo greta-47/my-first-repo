@@ -1,25 +1,26 @@
-# .github/workflows/auto-add-prs-to-project.yml
 name: Auto-add PRs to Project
 
 on:
   pull_request:
     types: [opened, reopened, ready_for_review]
 
-permissions: {}  # using PAT; no workflow-level perms needed
+# Using a PAT; no workflow-level permission keys required.
+permissions: {}
 
 jobs:
   add:
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID: ${{ secrets.PROJECT_ID }}   # PVT_... id
+      PROJECT_ID: ${{ secrets.PROJECT_ID }}   # PVT_... from your Projects V2 board
     steps:
       - name: Add PR to Project V2
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PROJECTS_TOKEN }}  # PAT with repo, project scopes
+          github-token: ${{ secrets.PROJECTS_TOKEN }}  # classic PAT with scopes: repo, project
           script: |
             const projectId = process.env.PROJECT_ID;
             const nodeId = context.payload.pull_request.node_id;
-            const mutation = "mutation($projectId:ID!, $contentId:ID!) { addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) { item { id } } }";
+            const mutation =
+              "mutation($projectId:ID!, $contentId:ID!) { addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) { item { id } } }";
             await github.graphql(mutation, { projectId, contentId: nodeId });
             core.info(`Added PR #${context.payload.pull_request.number} to project ${projectId}`);
