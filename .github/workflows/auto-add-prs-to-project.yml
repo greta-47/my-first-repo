@@ -1,25 +1,54 @@
-      - name: Add PR to Project V2
+name: Auto-add PRs to Project
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+# No workflow-level perms required when using a PAT.
+permissions: {}
+
+jobs:
+  add:
+    # Safety: only run when the PR targets your repo
+    if: github.repository_owner == 'greta-47'
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ secrets.PROJECT_ID }}   # PVT_... from your Projects V2 board
+    steps:
+      - name: Add PR to Project V2 + set fields
         id: add
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PROJECTS_TOKEN }}  # classic PAT: repo, project
+          github-token: ${{ secrets.PROJECTS_TOKEN }}  # classic PAT with scopes: repo, project
           script: |
             const projectId = process.env.PROJECT_ID?.trim();
             const pr = context.payload.pull_request;
+
+            // ---- guards -----------------------------------------------------
             if (!projectId || !projectId.startsWith("PVT_")) {
-              core.setFailed("PROJECT_ID missing/invalid (must start with PVT_)");
+              core.setFailed("PROJECT_ID is missing or invalid (must start with PVT_).");
               return;
             }
-            if (!pr) { core.setFailed("No pull_request payload"); return; }
+            if (!pr) {
+              core.setFailed("No pull_request payload.");
+              return;
+            }
 
-            // 1) Add the PR to the project
-            const addMutation =
-              "mutation($projectId:ID!, $contentId:ID!) { addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) { item { id } } }";
-            const addRes = await github.graphql(addMutation, { projectId, contentId: pr.node_id });
+            // ---- 1) Add PR as a project item --------------------------------
+            const addMutation = `
+              mutation($projectId:ID!, $contentId:ID!) {
+                addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
+                  item { id }
+                }
+              }`;
+            const addRes = await github.graphql(addMutation, {
+              projectId,
+              contentId: pr.node_id
+            });
             const itemId = addRes.addProjectV2ItemById.item.id;
-            core.info(`Added PR #${pr.number} as item ${itemId} to ${projectId}`);
+            core.info(\`Added PR #\${pr.number} as item \${itemId}\`);
 
-            // 2) Fetch ONLY single-select fields via inline fragment (union-safe)
+            // ---- 2) Read single-select fields safely (union via inline fragment)
             const fieldsQuery = `
               query($projectId:ID!){
                 node(id:$projectId){
@@ -37,37 +66,62 @@
                   }
                 }
               }`;
+            const fq = await github.graphql(fieldsQuery, { projectId });
 
-            const res = await github.graphql(fieldsQuery, { projectId });
-            // Filter to the single-select nodes we actually received
-            const fields = res.node.fields.nodes.filter(n => n && n.__typename === "ProjectV2SingleSelectField");
+            // Only keep single-select field nodes
+            const selectFields = (fq.node?.fields?.nodes || [])
+              .filter(n => n && n.__typename === "ProjectV2SingleSelectField");
 
             function pick(fieldName, optionName) {
-              const f = fields.find(x => x.name === fieldName);
+              const f = selectFields.find(x => x.name === fieldName);
               if (!f) return null;
               const o = f.options.find(o => o.name === optionName);
               if (!o) return null;
               return { fieldId: f.id, optionId: o.id, label: `${fieldName}=${optionName}` };
             }
 
+            // Adjust these two strings if your board uses different labels
             const desired = [
               pick("Priority", "P2 (Normal)"),
               pick("Stage", "Later"),
             ].filter(Boolean);
 
-            const updateMutation = `
-              mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
-                updateProjectV2ItemFieldValue(input:{
-                  projectId:$projectId,itemId:$itemId,fieldId:$fieldId,
-                  value:{ singleSelectOptionId:$optionId }
-                }) { clientMutationId }
-              }`;
+            if (desired.length) {
+              const updateMutation = `
+                mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
+                  updateProjectV2ItemFieldValue(input:{
+                    projectId:$projectId,
+                    itemId:$itemId,
+                    fieldId:$fieldId,
+                    value:{ singleSelectOptionId:$optionId }
+                  }) { clientMutationId }
+                }`;
 
-            for (const d of desired) {
-              await github.graphql(updateMutation, {
-                projectId, itemId, fieldId: d.fieldId, optionId: d.optionId
-              });
-              core.info(`Set ${d.label}`);
+              for (const d of desired) {
+                await github.graphql(updateMutation, {
+                  projectId,
+                  itemId,
+                  fieldId: d.fieldId,
+                  optionId: d.optionId
+                });
+                core.info(\`Set \${d.label}\`);
+              }
+            } else {
+              core.info("No matching single-select fields found to set (Priority/Stage).");
             }
 
             core.setOutput("itemId", itemId);
+
+      - name: Comment on PR (confirmation)
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECTS_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: "✅ Added this PR to the project and set defaults (Priority: P2, Stage: Later)."
+            });
