@@ -14,17 +14,14 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1
 
-# Build deps only (removed later)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential libpq-dev curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /wheels
-
-# Copy only requirement spec first (better layer caching)
+# Better caching: copy only requirements first
 COPY requirements.txt /wheels/requirements.txt
 
-# Build all deps into wheels
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install -U pip setuptools wheel pip-tools && \
     pip wheel --wheel-dir=/wheels/dist -r /wheels/requirements.txt
@@ -48,16 +45,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-# Non-root user first so we can chown on COPY
+# Non-root user then app dir
 RUN useradd -m -u 10001 appuser
 WORKDIR /app
 
-# Install prebuilt wheels from builder (no source build here)
+# Install prebuilt wheels only
 COPY --from=builder /wheels/dist /wheels
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
-# Copy application source (owned by non-root)
+# Copy app source
 COPY --chown=appuser:appuser . /app
 
 # Entrypoint wrapper
@@ -69,7 +66,7 @@ RUN echo '#!/usr/bin/env sh' > /app/entrypoint.sh && \
 
 USER appuser
 
-# Simple container healthcheck (expects /health endpoint)
+# Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
 
@@ -80,4 +77,3 @@ LABEL org.opencontainers.image.title="my-first-repo API" \
 
 EXPOSE 8000
 ENTRYPOINT ["/app/entrypoint.sh"]
-

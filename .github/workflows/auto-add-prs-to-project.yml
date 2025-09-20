@@ -1,27 +1,38 @@
 name: Auto-add PRs to Project
 
 on:
-  pull_request:
-    types: [opened, reopened]
+  # target => secrets available even for forked PRs; includes new commits
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
 
-permissions:
-  contents: read
-  projects: write
+# Using a PAT; no workflow-level permission keys required.
+permissions: {}
 
 jobs:
   add:
+    # optional safety: only run in your repo
+    if: github.repository_owner == 'greta-47'
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PROJECT_ID: <PVT_kwHODXEMJs4BDHGE>
+      PROJECT_ID: ${{ secrets.PROJECT_ID }}   # PVT_... from your Projects V2 board
     steps:
-      - name: Add PR to Project V2 (GraphQL via gh)
-        run: |
-          gh api graphql -f query='
-            mutation($projectId:ID!, $contentId:ID!) {
-              addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
-                item { id }
-              }
-            }' \
-            -f projectId="$PROJECT_ID" \
-            -f contentId="${{ github.event.pull_request.node_id }}"
+      - name: Add PR to Project V2
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECTS_TOKEN }}  # classic PAT with scopes: repo, project
+          script: |
+            const projectId = process.env.PROJECT_ID;
+            const pr = context.payload.pull_request;
+            if (!pr) { core.setFailed("No pull_request payload"); return; }
+            const nodeId = pr.node_id;
+
+            const mutation =
+              "mutation($projectId:ID!, $contentId:ID!) { addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) { item { id } } }";
+
+            try {
+              await github.graphql(mutation, { projectId, contentId: nodeId });
+              core.info(`Added PR #${pr.number} to project ${projectId}`);
+            } catch (e) {
+              core.error(`GraphQL failed: ${e.message}`);
+              core.setFailed("Add to Project failed");
+            }
