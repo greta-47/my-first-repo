@@ -4,16 +4,14 @@ on:
   pull_request_target:
     types: [opened, reopened, ready_for_review, synchronize]
 
-# No workflow-level perms required when using a PAT.
 permissions: {}
 
 jobs:
   add:
-    # Safety: only run when the PR targets your repo
     if: github.repository_owner == 'greta-47'
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID: ${{ secrets.PROJECT_ID }}   # PVT_... from your Projects V2 board
+      PROJECT_ID: ${{ secrets.PROJECT_ID }}  # PVT_... id from your Projects V2 board
     steps:
       - name: Add PR to Project V2 + set fields
         id: add
@@ -26,13 +24,10 @@ jobs:
 
             // ---- guards -----------------------------------------------------
             if (!projectId || !projectId.startsWith("PVT_")) {
-              core.setFailed("PROJECT_ID is missing or invalid (must start with PVT_).");
+              core.setFailed("PROJECT_ID is missing/invalid (must start with PVT_)");
               return;
             }
-            if (!pr) {
-              core.setFailed("No pull_request payload.");
-              return;
-            }
+            if (!pr) { core.setFailed("No pull_request payload"); return; }
 
             // ---- 1) Add PR as a project item --------------------------------
             const addMutation = `
@@ -41,46 +36,74 @@ jobs:
                   item { id }
                 }
               }`;
-            const addRes = await github.graphql(addMutation, {
-              projectId,
-              contentId: pr.node_id
-            });
-            const itemId = addRes.addProjectV2ItemById.item.id;
-            core.info(\`Added PR #\${pr.number} as item \${itemId}\`);
+            let itemId;
+            try {
+              const addRes = await github.graphql(addMutation, { projectId, contentId: pr.node_id });
+              itemId = addRes.addProjectV2ItemById.item.id;
+              core.info(`Added PR #${pr.number} as item ${itemId}`);
+            } catch (e) {
+              core.error(`Add mutation failed: ${e.message}`);
+              core.error(`Vars: projectId=${projectId.slice(0,4)}… contentId=${pr.node_id}`);
+              throw e;
+            }
 
-            // ---- 2) Read single-select fields safely (union via inline fragment)
+            // ---- 2) Read fields using INLINE FRAGMENTS ONLY -----------------
+            // Union: ProjectV2FieldConfiguration
+            // - Use interface fragment to get common fields (id, name)
+            // - Use concrete fragment to get single-select options
             const fieldsQuery = `
-              query($projectId:ID!){
-                node(id:$projectId){
+              query($projectId:ID!) {
+                node(id: $projectId) {
                   ... on ProjectV2 {
-                    fields(first:50){
-                      nodes{
+                    fields(first: 50) {
+                      nodes {
                         __typename
                         ... on ProjectV2SingleSelectField {
                           id
                           name
                           options { id name }
                         }
+                        ... on ProjectV2FieldCommon {
+                          id
+                          name
+                        }
                       }
                     }
                   }
                 }
               }`;
-            const fq = await github.graphql(fieldsQuery, { projectId });
+            let nodes;
+            try {
+              const fq = await github.graphql(fieldsQuery, { projectId });
+              nodes = fq?.node?.fields?.nodes ?? [];
+            } catch (e) {
+              core.error(`Fields query failed: ${e.message}`);
+              core.error("Hint: selections must be inside inline fragments for union/interface types.");
+              throw e;
+            }
 
-            // Only keep single-select field nodes
-            const selectFields = (fq.node?.fields?.nodes || [])
-              .filter(n => n && n.__typename === "ProjectV2SingleSelectField");
+            // Keep only nodes that have name (from ProjectV2FieldCommon)
+            const allFields = nodes.filter(n => n && n.name);
+            // Single-select fields have an 'options' array from the concrete fragment
+            const selectFields = allFields.filter(n => Array.isArray(n.options));
 
-            function pick(fieldName, optionName) {
+            // Diagnostics: list available single-selects & options
+            core.info("Single-select fields available:");
+            for (const f of selectFields) {
+              const opts = f.options.map(o => o.name).join(", ");
+              core.info(`  - ${f.name}: [${opts}]`);
+            }
+
+            // Helper to pick a single-select option by label
+            const pick = (fieldName, optionName) => {
               const f = selectFields.find(x => x.name === fieldName);
               if (!f) return null;
               const o = f.options.find(o => o.name === optionName);
               if (!o) return null;
               return { fieldId: f.id, optionId: o.id, label: `${fieldName}=${optionName}` };
-            }
+            };
 
-            // Adjust these two strings if your board uses different labels
+            // Adjust these labels to match YOUR board exactly
             const desired = [
               pick("Priority", "P2 (Normal)"),
               pick("Stage", "Later"),
@@ -96,15 +119,15 @@ jobs:
                     value:{ singleSelectOptionId:$optionId }
                   }) { clientMutationId }
                 }`;
-
               for (const d of desired) {
-                await github.graphql(updateMutation, {
-                  projectId,
-                  itemId,
-                  fieldId: d.fieldId,
-                  optionId: d.optionId
-                });
-                core.info(\`Set \${d.label}\`);
+                try {
+                  await github.graphql(updateMutation, {
+                    projectId, itemId, fieldId: d.fieldId, optionId: d.optionId
+                  });
+                  core.info(`Set ${d.label}`);
+                } catch (e) {
+                  core.error(`Failed to set ${d.label}: ${e.message}`);
+                }
               }
             } else {
               core.info("No matching single-select fields found to set (Priority/Stage).");
