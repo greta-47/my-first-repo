@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from starlette.types import ASGIApp, Receive, Scope, Send
+from collections.abc import Iterable
+
 from starlette.responses import PlainTextResponse
-from typing import Iterable, Optional
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .settings import Settings
 
@@ -48,9 +49,7 @@ class SecurityHeadersMiddleware:
 
         await self.app(scope, receive, send_with_headers)
 
-    def _apply_headers(
-        self, existing: Iterable[Iterable[bytes]], scheme: str
-    ) -> list[list[bytes]]:
+    def _apply_headers(self, existing: Iterable[Iterable[bytes]], scheme: str) -> list[list[bytes]]:
         hdrs: list[list[bytes]] = [list(pair) for pair in existing]
 
         def set_header(name: str, value: str):
@@ -116,7 +115,7 @@ def _scheme_from_scope(scope: Scope) -> str:
     return scope.get("scheme", "http")
 
 
-def _get_header(scope: Scope, name_lower_bytes: bytes) -> Optional[str]:
+def _get_header(scope: Scope, name_lower_bytes: bytes) -> str | None:
     for k, v in scope.get("headers", []):
         if k.lower() == name_lower_bytes:
             return v.decode("latin-1")

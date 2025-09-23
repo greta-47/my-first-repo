@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import List
 
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,7 +10,7 @@ class Settings(BaseSettings):
     ENV: str = os.getenv("ENV", "dev")
     ENFORCE_HTTPS: bool = os.getenv("ENFORCE_HTTPS", "false").lower() == "true"
     CSP_REPORT_ONLY: bool = os.getenv("CSP_REPORT_ONLY", "false").lower() == "true"
-    ALLOWED_ORIGINS: List[AnyHttpUrl] | None = None
+    ALLOWED_ORIGINS: list[AnyHttpUrl] | None = None
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod

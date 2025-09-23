@@ -1,7 +1,8 @@
 # security_middleware.py
-from typing import Iterable, Tuple
-from starlette.types import ASGIApp, Receive, Scope, Send
+from collections.abc import Iterable
 from dataclasses import dataclass
+
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 # If you already have Settings in settings.py, import it; otherwise inline a minimal shim.
 try:
@@ -45,7 +46,7 @@ def build_docs_csp() -> str:
     return "; ".join(f"{k} {v}" for k, v in parts.items())
 
 
-DOCS_PATHS: Tuple[str, ...] = (
+DOCS_PATHS: tuple[str, ...] = (
     "/docs",
     "/docs/",
     "/docs/oauth2-redirect",
@@ -78,13 +79,11 @@ class SecurityHeadersMiddleware:
             if self.settings.CSP_REPORT_ONLY
             else b"content-security-policy"
         )
-        policy_value = (self._docs_csp if use_docs_csp else self._strict_csp).encode(
-            "utf-8"
-        )
+        policy_value = (self._docs_csp if use_docs_csp else self._strict_csp).encode("utf-8")
 
         async def send_wrapper(message):
             if message["type"] == "http.response.start":
-                headers: Iterable[Tuple[bytes, bytes]] = message.get("headers", [])
+                headers: Iterable[tuple[bytes, bytes]] = message.get("headers", [])
                 # Filter out any pre-existing CSP header
                 filtered = [
                     (k, v)
