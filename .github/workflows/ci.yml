@@ -35,7 +35,7 @@ jobs:
       run: python -m ruff check .
 
     - name: Run mypy
-      run: python -m mypy .
+      run: python -m mypy app/ tests/ --explicit-package-bases
 
     - name: Run pip-audit
       run: python -m pip-audit
