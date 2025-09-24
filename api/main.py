@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+
 from fastapi import FastAPI, Response
 from starlette.middleware.cors import CORSMiddleware
 
+from .security_middleware import EnforceHTTPSMiddleware, SecurityHeadersMiddleware
 from .settings import Settings
-from .security_middleware import SecurityHeadersMiddleware, EnforceHTTPSMiddleware
 
 settings = Settings()
 
