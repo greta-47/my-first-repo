@@ -1,5 +1,7 @@
 # RecoveryOS MVP — Single Compassionate Loop
 
+<!-- Test change to verify corrected auto-add workflow -->
+
 ## Run locally
 
 ```bash
