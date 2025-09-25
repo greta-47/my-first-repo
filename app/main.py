@@ -21,7 +21,31 @@ def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# -----------------------------
+# Secure, PHI/PII-safe logging
+# -----------------------------
+
+# Optional (OFF by default): route exception stacks to Sentry WITHOUT leaking them into JSON logs.
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "false").lower() == "true"
+if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
+    try:
+        import sentry_sdk  # type: ignore
+        # Keep lightweight: no performance tracing; error-only.
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
+    except Exception:
+        # Never let observability break the app.
+        pass
+
+
 class JsonFormatter(logging.Formatter):
+    """
+    Security-hardened JSON log formatter.
+    - Emits compact JSON with ts/level/logger/msg.
+    - Intentionally omits stack traces/exception text (exc_info) to prevent PHI/PII leakage.
+    - If stack capture is needed, enable Sentry via env (see flags above).
+    """
+
     def format(self, record: logging.LogRecord) -> str:
         payload = {
             "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
@@ -29,8 +53,7 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": record.getMessage(),
         }
-        if record.exc_info:
-            payload["exc_info"] = self.formatException(record.exc_info)
+        # DO NOT serialize record.exc_info or "Traceback" text into structured logs.
         return json.dumps(payload, separators=(",", ":"))
 
 
@@ -40,7 +63,7 @@ _handler.setFormatter(JsonFormatter())
 logger.setLevel(logging.INFO)
 logger.handlers = [_handler]
 
-SENTRY_DSN = os.getenv("SENTRY_DSN") or ""
+# Note: we intentionally do NOT touch Uvicorn access logs here; ensure deployment config avoids IP/UA in sinks.
 
 
 @dataclass
@@ -72,6 +95,10 @@ CHECKINS: Dict[str, List["CheckIn"]] = defaultdict(list)
 
 
 def anon_key(ip: str, ua: str) -> str:
+    """
+    Derive an anonymous, deterministic rate-limit key from IP/UA **without** logging them.
+    Inputs are never logged or returned; only a hash is kept in-memory.
+    """
     h = hashlib.sha256()
     h.update(ip.encode("utf-8"))
     h.update(b"|")
@@ -146,6 +173,7 @@ def v0_score(checkins: List[CheckIn]) -> Tuple[int, str, str]:
 
 
 def get_rate_key(request: Request) -> str:
+    # Use IP/UA only to derive an anon hash for rate limiting. Do not log or expose.
     ip = request.client.host if request.client else "0.0.0.0"
     ua = request.headers.get("user-agent", "unknown")
     return anon_key(ip, ua)
@@ -156,6 +184,7 @@ app = FastAPI(title="Single Compassionate Loop API", version="0.0.1")
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
+    # Rate limit ONLY POST /check-in
     if request.method.upper() == "POST" and request.url.path == "/check-in":
         key = get_rate_key(request)
         if not RATE_LIMIT.allow(key):
@@ -180,6 +209,7 @@ async def readyz() -> JSONResponse:
 
 @app.get("/metrics")
 async def metrics() -> PlainTextResponse:
+    # Minimal metrics, no high-cardinality labels, no IP/UA exposure.
     lines = [
         "# HELP app_uptime_seconds Application uptime in seconds",
         "# TYPE app_uptime_seconds gauge",
@@ -231,16 +261,10 @@ async def check_in(payload: CheckIn, response: Response) -> CheckInResponse:
     else:
         band = "high"
 
+    # Redacted, band/score only; never log user-provided fields or identifiers.
     logger.info(
         "check_in_scored %s",
-        json.dumps(
-            {
-                "user": "redacted",
-                "band": band,
-                "score": score,
-            },
-            separators=(",", ":"),
-        ),
+        json.dumps({"user": "redacted", "band": band, "score": score}, separators=(",", ":")),
     )
     return CheckInResponse(
         state="ok",
