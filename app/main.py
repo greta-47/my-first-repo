@@ -29,8 +29,8 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": record.getMessage(),
         }
-        if record.exc_info:
-            payload["exc_info"] = self.formatException(record.exc_info)
+        # Secure logging: drop exc_info/traceback to avoid PHI/PII leaks
+        # Exception details are logged as message only
         return json.dumps(payload, separators=(",", ":"))
 
 
@@ -40,7 +40,32 @@ _handler.setFormatter(JsonFormatter())
 logger.setLevel(logging.INFO)
 logger.handlers = [_handler]
 
+# Optional Sentry integration
+# Controlled by LOG_STACKS_TO_SENTRY=true and SENTRY_DSN env vars
+# Default is OFF, wrapped in try/except so app never breaks
 SENTRY_DSN = os.getenv("SENTRY_DSN") or ""
+LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "").lower() == "true"
+
+if LOG_STACKS_TO_SENTRY and SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.logging import LoggingIntegration
+
+        sentry_logging = LoggingIntegration(
+            level=logging.INFO,  # Capture info and above as breadcrumbs
+            event_level=logging.ERROR,  # Send errors as events
+        )
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[sentry_logging],
+            traces_sample_rate=0.1,
+            profiles_sample_rate=0.1,
+        )
+        logger.info("sentry_initialized")
+    except Exception as e:
+        # Silently fail - app should never break due to Sentry issues
+        logger.info(f"sentry_init_failed: {str(e)}")
 
 
 @dataclass
