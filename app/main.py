@@ -48,16 +48,10 @@ logger.handlers = [_handler]
 SENTRY_DSN = os.getenv("SENTRY_DSN") or ""
 
 
-
-
-
 @dataclass
 class RateLimitConfig:
     capacity: int = 5
     window_seconds: int = 10
-
-
-
 
 
 class InMemoryRateLimiter:
@@ -82,9 +76,6 @@ CONSENTS: Dict[str, "ConsentRecord"] = {}
 CHECKINS: Dict[str, List["CheckIn"]] = defaultdict(list)
 
 
-
-
-
 def anon_key(ip: str, ua: str) -> str:
     """
     Derive an anonymous, deterministic rate-limit key from IP/UA **without** logging them.
@@ -97,16 +88,10 @@ def anon_key(ip: str, ua: str) -> str:
     return h.hexdigest()
 
 
-
-
-
 class ConsentPayload(BaseModel):
     user_id: str = Field(min_length=1)
     terms_version: str = Field(min_length=1)
     accepted: bool
-
-
-
 
 
 class ConsentRecord(BaseModel):
@@ -114,9 +99,6 @@ class ConsentRecord(BaseModel):
     terms_version: str
     accepted: bool
     recorded_at: str
-
-
-
 
 
 class CheckIn(BaseModel):
@@ -129,18 +111,12 @@ class CheckIn(BaseModel):
     ts: str = Field(default_factory=iso_now)
 
 
-
-
-
 class CheckInResponse(BaseModel):
     state: Literal["ok", "insufficient_data"]
     band: Optional[Literal["low", "elevated", "moderate", "high"]] = None
     score: Optional[int] = None
     reflection: Optional[str] = None
     footer: Optional[str] = None
-
-
-
 
 
 def v0_score(checkins: List[CheckIn]) -> Tuple[int, str, str]:
@@ -178,9 +154,6 @@ def v0_score(checkins: List[CheckIn]) -> Tuple[int, str, str]:
     return score, reflections[band], footer
 
 
-
-
-
 def get_rate_key(request: Request) -> str:
     # Use IP/UA only to derive an anon hash for rate limiting. Do not log or expose.
     ip = request.client.host if request.client else "0.0.0.0"
@@ -189,9 +162,6 @@ def get_rate_key(request: Request) -> str:
 
 
 app = FastAPI(title="Single Compassionate Loop API", version="0.0.1")
-
-
-
 
 
 @app.middleware("http")
@@ -209,23 +179,14 @@ async def rate_limit_middleware(request: Request, call_next):
     return response
 
 
-
-
-
 @app.get("/healthz")
 async def healthz() -> PlainTextResponse:
     return PlainTextResponse("ok")
 
 
-
-
-
 @app.get("/readyz")
 async def readyz() -> JSONResponse:
     return JSONResponse({"ok": True, "uptime_s": int(time.time() - APP_START_TS)})
-
-
-
 
 
 @app.get("/metrics")
@@ -242,9 +203,6 @@ async def metrics() -> PlainTextResponse:
     return PlainTextResponse("\n".join(lines))
 
 
-
-
-
 @app.post("/consents", response_model=ConsentRecord)
 async def post_consents(payload: ConsentPayload) -> ConsentRecord:
     rec = ConsentRecord(
@@ -258,18 +216,12 @@ async def post_consents(payload: ConsentPayload) -> ConsentRecord:
     return rec
 
 
-
-
-
 @app.get("/consents/{user_id}", response_model=ConsentRecord | Dict[str, str])
 async def get_consents(user_id: str):
     c = CONSENTS.get(user_id)
     if not c:
         return {"detail": "not_found"}
     return c
-
-
-
 
 
 @app.post("/check-in", response_model=CheckInResponse)
