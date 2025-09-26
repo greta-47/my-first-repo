@@ -21,6 +21,17 @@ def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+SENTRY_DSN = os.getenv("SENTRY_DSN") or ""
+LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "").lower() == "true"
+if LOG_STACKS_TO_SENTRY and SENTRY_DSN:
+    try:
+        import sentry_sdk  # type: ignore
+
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
+    except Exception:
+        pass
+
+
 # -----------------------------
 # Secure, PHI/PII-safe logging
 # -----------------------------
@@ -31,6 +42,7 @@ LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "false").lower() == "tr
 if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
     try:
         import sentry_sdk  # type: ignore
+
         # Keep lightweight: no performance tracing; error-only.
         sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
     except Exception:
