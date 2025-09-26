@@ -50,7 +50,6 @@ jobs:
           python -m pip install --upgrade --force-reinstall 'pip==24.2'
           python -m pip --version
           python -m pip install 'ruff==0.13.2'
-          python -m ruff --version
           python -m ruff format --check .
           python -m ruff check .
   scans:
