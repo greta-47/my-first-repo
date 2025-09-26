@@ -19,4 +19,4 @@ jobs:
           python -m pip install pip-audit
       - name: Run pip-audit (blocking High/Critical)
         run: |
-          python -m pip_audit -r requirements.txt --severity "high,critical"
+          python -m pip_audit -r requirements.txt --severity high,critical
