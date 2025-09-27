@@ -121,6 +121,173 @@ class CheckInResponse(BaseModel):
     footer: Optional[str] = None
 
 
+class TroubleshootingRequest(BaseModel):
+    issue_type: Literal["login", "connection", "data", "performance", "general"] = "general"
+    error_message: Optional[str] = None
+    user_agent: Optional[str] = None
+    additional_context: Optional[str] = None
+
+
+class TroubleshootingStep(BaseModel):
+    step: int
+    title: str
+    description: str
+    action: Optional[str] = None
+
+
+class TroubleshootingResponse(BaseModel):
+    issue_type: str
+    steps: List[TroubleshootingStep]
+    emergency_contact: Optional[str] = None
+    additional_resources: List[str] = []
+
+
+def generate_troubleshooting_steps(request: TroubleshootingRequest) -> TroubleshootingResponse:
+    """Generate structured troubleshooting steps based on issue type."""
+    
+    common_steps = {
+        "login": [
+            TroubleshootingStep(
+                step=1,
+                title="Verify Credentials",
+                description="Double-check your username/email and password for accuracy.",
+                action="Re-enter login information carefully"
+            ),
+            TroubleshootingStep(
+                step=2,
+                title="Check Network Connection",
+                description="Ensure you have a stable internet connection.",
+                action="Try accessing other websites or restart your connection"
+            ),
+            TroubleshootingStep(
+                step=3,
+                title="Clear Browser Data",
+                description="Clear cache, cookies, and browser data that might be interfering.",
+                action="Clear browser cache and cookies, then try again"
+            ),
+            TroubleshootingStep(
+                step=4,
+                title="Try Different Browser",
+                description="Test with a different browser or incognito/private mode.",
+                action="Use Chrome, Firefox, or Safari in private browsing mode"
+            ),
+            TroubleshootingStep(
+                step=5,
+                title="Check Service Status",
+                description="Verify that the service is not experiencing outages.",
+                action="Visit our status page or contact support if issues persist"
+            )
+        ],
+        "connection": [
+            TroubleshootingStep(
+                step=1,
+                title="Check Internet Connection",
+                description="Verify your device is connected to the internet.",
+                action="Test connection by visiting other websites"
+            ),
+            TroubleshootingStep(
+                step=2,
+                title="Restart Network",
+                description="Restart your router/modem or reconnect to WiFi.",
+                action="Unplug router for 30 seconds, then reconnect"
+            ),
+            TroubleshootingStep(
+                step=3,
+                title="Check Firewall Settings",
+                description="Ensure no firewall or security software is blocking access.",
+                action="Temporarily disable firewall or add exception"
+            )
+        ],
+        "data": [
+            TroubleshootingStep(
+                step=1,
+                title="Verify Data Format",
+                description="Ensure all required fields are filled with valid values.",
+                action="Check that dates, numbers, and text fields contain appropriate data"
+            ),
+            TroubleshootingStep(
+                step=2,
+                title="Check Field Limits",
+                description="Verify that input doesn't exceed maximum allowed lengths.",
+                action="Review character limits for text fields"
+            ),
+            TroubleshootingStep(
+                step=3,
+                title="Refresh and Retry",
+                description="Refresh the page and try submitting again.",
+                action="Press F5 or reload the page, then resubmit"
+            )
+        ],
+        "performance": [
+            TroubleshootingStep(
+                step=1,
+                title="Check System Resources",
+                description="Ensure your device has adequate memory and processing capacity.",
+                action="Close unnecessary applications and browser tabs"
+            ),
+            TroubleshootingStep(
+                step=2,
+                title="Update Browser",
+                description="Use the latest version of your web browser.",
+                action="Update to the newest browser version available"
+            ),
+            TroubleshootingStep(
+                step=3,
+                title="Disable Extensions",
+                description="Temporarily disable browser extensions that might slow performance.",
+                action="Disable ad blockers and other extensions temporarily"
+            )
+        ],
+        "general": [
+            TroubleshootingStep(
+                step=1,
+                title="Restart Application",
+                description="Close and reopen the application or refresh the page.",
+                action="Fully close and restart the application"
+            ),
+            TroubleshootingStep(
+                step=2,
+                title="Check for Updates",
+                description="Ensure you're using the latest version of the application.",
+                action="Check for and install any available updates"
+            ),
+            TroubleshootingStep(
+                step=3,
+                title="Review Error Messages",
+                description="Look for specific error messages that can guide resolution.",
+                action="Note exact error text and search for specific solutions"
+            )
+        ]
+    }
+    
+    steps = common_steps.get(request.issue_type, common_steps["general"])
+    
+    # Add context-specific step if error message provided
+    if request.error_message:
+        error_msg = request.error_message[:100]
+        if len(request.error_message) > 100:
+            error_msg += "..."
+        context_step = TroubleshootingStep(
+            step=len(steps) + 1,
+            title="Address Specific Error",
+            description=f"Error reported: {error_msg}",
+            action="Contact support with this specific error message if other steps don't resolve"
+        )
+        steps.append(context_step)
+    
+    resources = [
+        "Visit our Help Center for detailed guides",
+        "Contact support if issues persist after trying these steps",
+        "Check our Community Forum for similar issues and solutions"
+    ]
+    
+    return TroubleshootingResponse(
+        issue_type=request.issue_type,
+        steps=steps,
+        additional_resources=resources
+    )
+
+
 def v0_score(checkins: List[CheckIn]) -> Tuple[int, str, str]:
     latest = checkins[-1]
     score = 0
@@ -224,6 +391,17 @@ async def get_consents(user_id: str):
     if not c:
         return {"detail": "not_found"}
     return c
+
+
+@app.post("/troubleshoot", response_model=TroubleshootingResponse)
+async def troubleshoot(request: TroubleshootingRequest) -> TroubleshootingResponse:
+    """
+    Provide structured troubleshooting steps based on the type of issue reported.
+    Helps users systematically resolve common problems.
+    """
+    logger.info("troubleshooting_request", extra={"issue_type": request.issue_type})
+    response = generate_troubleshooting_steps(request)
+    return response
 
 
 @app.post("/check-in", response_model=CheckInResponse)
