@@ -90,3 +90,11 @@ When adding features, update:
 - `/docs/data_classification.md` - Privacy/security implications
 - `/EPIC_and_issues.md` - Feature tracking and completion status
 - Tests demonstrating privacy-safe behavior
+
+## Extended Documentation
+
+For comprehensive patterns beyond MVP scope:
+- `/docs/DATA-MODEL.md` - Database schema, RLS patterns, PHI handling
+- `/docs/DEPLOYMENT.md` - Container security, K8s configs, CI/CD pipelines  
+- `/docs/API.md` - REST conventions, error handling, pagination standards
+- `/docs/ENVIRONMENT.md` - Configuration management, secrets rotation
