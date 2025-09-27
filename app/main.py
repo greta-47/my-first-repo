@@ -21,23 +21,6 @@ def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# -----------------------------
-# Secure, PHI/PII-safe logging
-# -----------------------------
-
-# Optional (OFF by default): route exception stacks to Sentry WITHOUT leaking them into JSON logs.
-SENTRY_DSN = os.getenv("SENTRY_DSN")
-LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "false").lower() == "true"
-if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
-    try:
-        import sentry_sdk  # type: ignore
-        # Keep lightweight: no performance tracing; error-only.
-        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
-    except Exception:
-        # Never let observability break the app.
-        pass
-
-
 class JsonFormatter(logging.Formatter):
     """
     Security-hardened JSON log formatter.
@@ -53,7 +36,8 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": record.getMessage(),
         }
-        # DO NOT serialize record.exc_info or "Traceback" text into structured logs.
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
         return json.dumps(payload, separators=(",", ":"))
 
 
@@ -63,7 +47,7 @@ _handler.setFormatter(JsonFormatter())
 logger.setLevel(logging.INFO)
 logger.handlers = [_handler]
 
-# Note: we intentionally do NOT touch Uvicorn access logs here; ensure deployment config avoids IP/UA in sinks.
+SENTRY_DSN = os.getenv("SENTRY_DSN") or ""
 
 
 @dataclass
