@@ -15,10 +15,10 @@ Root cause
 Fix implemented
 - Pin toolchain in workflows and remove bad reference:
   - pr.yml ruff job now pins:
-    - pip==24.2.1
+    - pip==24.2
     - ruff==0.13.2
   - ci.yml lint-test now:
-    - Pins pip==24.2.1
+    - Pins pip==24.2
     - Installs runtime deps from requirements.txt
     - Installs tools with fixed versions: ruff==0.13.2, mypy==1.11.2, pip-audit==2.7.3, pytest==8.3.2
     - Removes requirements-dev.txt reference.
