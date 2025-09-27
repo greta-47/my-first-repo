@@ -17,6 +17,12 @@ curl -fsS http://127.0.0.1:8000/healthz
 python -m pytest -q
 ```
 
+## API Documentation
+
+- **Interactive API docs**: Visit `http://127.0.0.1:8000/docs` when running locally
+- **Help endpoint**: `GET /help` for API information and troubleshooting
+- **Troubleshooting guide**: See [docs/troubleshooting.md](docs/troubleshooting.md)
+
 ## CI
 
 - Python 3.12 only. Ruff, mypy, pytest, and pip-audit (non-blocking in PR CI) run in `.github/workflows/ci.yml`.

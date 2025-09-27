@@ -12,7 +12,7 @@ from typing import Deque, Dict, List, Literal, Optional, Tuple
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 APP_START_TS = time.time()
 
@@ -163,7 +163,11 @@ def get_rate_key(request: Request) -> str:
     return anon_key(ip, ua)
 
 
-app = FastAPI(title="Single Compassionate Loop API", version="0.0.1")
+app = FastAPI(
+    title="Single Compassionate Loop API", 
+    version="0.0.1",
+    description="API for compassionate mental health check-ins and consent management"
+)
 
 
 @app.middleware("http")
@@ -175,7 +179,15 @@ async def rate_limit_middleware(request: Request, call_next):
             logger.info("rate_limited")
             return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={"detail": "rate_limited"},
+                content={
+                    "detail": "rate_limited",
+                    "message": "Too many requests. Please wait before retrying.",
+                    "retry_after_seconds": 10,
+                    "limit": "5 requests per 10 seconds",
+                    "troubleshooting": (
+                        "Space out check-in submissions or implement exponential backoff"
+                    )
+                },
             )
     response = await call_next(request)
     return response
@@ -205,6 +217,61 @@ async def metrics() -> PlainTextResponse:
     return PlainTextResponse("\n".join(lines))
 
 
+@app.get("/help")
+async def help_endpoint() -> JSONResponse:
+    """Provide API usage information and troubleshooting guidance."""
+    return JSONResponse({
+        "api_info": {
+            "title": "Single Compassionate Loop API",
+            "version": "0.0.1",
+            "description": "API for compassionate mental health check-ins and consent management"
+        },
+        "endpoints": {
+            "health_checks": {
+                "GET /healthz": "Basic health check - returns 'ok'",
+                "GET /readyz": "Readiness check with uptime",
+                "GET /metrics": "Prometheus-style metrics"
+            },
+            "consent_management": {
+                "POST /consents": "Submit user consent",
+                "GET /consents/{user_id}": "Retrieve consent record"
+            },
+            "check_ins": {
+                "POST /check-in": "Submit check-in data (rate limited: 5/10s)"
+            }
+        },
+        "common_errors": {
+            "HTTP_429": "Rate limited - wait 10 seconds before retry",
+            "HTTP_422": "Validation error - check request format",
+            "HTTP_404": "Resource not found - verify user_id exists",
+            "insufficient_data": "Need 3+ check-ins for scoring"
+        },
+        "troubleshooting": {
+            "documentation": "/docs/troubleshooting.md",
+            "api_docs": "/docs (Swagger UI)",
+            "test_connectivity": "curl http://127.0.0.1:8000/healthz"
+        }
+    })
+
+
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: Request, exc: ValidationError):
+    """Enhanced validation error handling with troubleshooting hints."""
+    logger.info(f"validation_error path={request.url.path}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Validation failed",
+            "errors": exc.errors(),
+            "troubleshooting": {
+                "check_required_fields": "Ensure all required fields are present",
+                "verify_data_types": "Check that field types match expectations", 
+                "api_help": "/help for endpoint documentation"
+            }
+        }
+    )
+
+
 @app.post("/consents", response_model=ConsentRecord)
 async def post_consents(payload: ConsentPayload) -> ConsentRecord:
     rec = ConsentRecord(
@@ -220,9 +287,25 @@ async def post_consents(payload: ConsentPayload) -> ConsentRecord:
 
 @app.get("/consents/{user_id}", response_model=ConsentRecord | Dict[str, str])
 async def get_consents(user_id: str):
+    if not user_id.strip():
+        logger.info("invalid_user_id_empty")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": "invalid_user_id", 
+                "message": "user_id cannot be empty",
+                "troubleshooting": "Provide a valid non-empty user_id"
+            }
+        )
+    
     c = CONSENTS.get(user_id)
     if not c:
-        return {"detail": "not_found"}
+        logger.info("consent_not_found user_id_redacted")
+        return {
+            "detail": "not_found",
+            "message": "No consent record found for user",
+            "troubleshooting": "Submit consent via POST /consents first"
+        }
     return c
 
 
@@ -232,7 +315,16 @@ async def check_in(payload: CheckIn, response: Response) -> CheckInResponse:
     history = CHECKINS[payload.user_id]
     if len(history) < 3:
         logger.info("insufficient_data")
-        return CheckInResponse(state="insufficient_data")
+        return CheckInResponse(
+            state="insufficient_data",
+            band=None,
+            score=None,
+            reflection=(
+                f"You have submitted {len(history)} check-in(s). "
+                f"Please submit {3-len(history)} more to receive personalized scoring and feedback."
+            ),
+            footer="Keep checking in - your data helps us provide better support."
+        )
 
     score, reflection, footer = v0_score(history)
     band: Literal["low", "elevated", "moderate", "high"]
