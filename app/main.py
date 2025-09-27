@@ -31,6 +31,7 @@ LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "false").lower() == "tr
 if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
     try:
         import sentry_sdk  # type: ignore
+
         # Keep lightweight: no performance tracing; error-only.
         sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
     except Exception:
@@ -63,7 +64,8 @@ _handler.setFormatter(JsonFormatter())
 logger.setLevel(logging.INFO)
 logger.handlers = [_handler]
 
-# Note: we intentionally do NOT touch Uvicorn access logs here; ensure deployment config avoids IP/UA in sinks.
+# Note: we intentionally do NOT touch Uvicorn access logs here; ensure deployment config avoids
+# IP/UA in sinks.
 
 
 @dataclass
@@ -273,4 +275,3 @@ async def check_in(payload: CheckIn, response: Response) -> CheckInResponse:
         reflection=reflection,
         footer=footer,
     )
-
