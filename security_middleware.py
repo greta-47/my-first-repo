@@ -1,16 +1,19 @@
 # security_middleware.py
-from typing import Iterable, Tuple
-from starlette.types import ASGIApp, Receive, Scope, Send
 from dataclasses import dataclass
+from typing import Iterable, Tuple
+
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 # If you already have Settings in settings.py, import it; otherwise inline a minimal shim.
 try:
     from settings import Settings  # expects .CSP_REPORT_ONLY: bool
-except Exception:
+except ImportError:
 
     @dataclass
-    class Settings:
+    class _Settings:
         CSP_REPORT_ONLY: bool = False
+
+    Settings = _Settings  # type: ignore[assignment]
 
 
 # --- Strict default CSP used for all API routes ---
@@ -78,9 +81,7 @@ class SecurityHeadersMiddleware:
             if self.settings.CSP_REPORT_ONLY
             else b"content-security-policy"
         )
-        policy_value = (self._docs_csp if use_docs_csp else self._strict_csp).encode(
-            "utf-8"
-        )
+        policy_value = (self._docs_csp if use_docs_csp else self._strict_csp).encode("utf-8")
 
         async def send_wrapper(message):
             if message["type"] == "http.response.start":
