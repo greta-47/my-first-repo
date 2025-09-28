@@ -47,8 +47,9 @@ jobs:
           python-version: "3.12"
           cache: "pip"
       - run: |
-          python -m pip install -U pip
-          python -m pip install ruff
+          python -m pip install --upgrade --force-reinstall 'pip==24.2'
+          python -m pip --version
+          python -m pip install 'ruff==0.13.2'
           python -m ruff format --check .
           python -m ruff check .
   scans:
