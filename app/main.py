@@ -53,7 +53,7 @@ if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
 
         # Keep lightweight: no performance tracing; error-only.
         sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
-    except Exception:
+    except ImportError:
         # Never let observability break the app.
         pass
 
