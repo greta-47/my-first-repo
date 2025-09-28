@@ -49,7 +49,7 @@ SENTRY_DSN = os.getenv("SENTRY_DSN")
 LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "false").lower() == "true"
 if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
     try:
-        import sentry_sdk  # type: ignore
+        import sentry_sdk  # type: ignore[import-untyped]
 
         # Keep lightweight: no performance tracing; error-only.
         sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
