@@ -8,11 +8,12 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Deque, Dict, List, Literal, Optional, Tuple
+from typing import Deque, Dict, List, Literal, Optional, Tuple, Callable, Awaitable
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
+from starlette.responses import Response as StarletteResponse
 
 APP_START_TS = time.time()
 
@@ -33,8 +34,8 @@ if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
         import sentry_sdk  # type: ignore[import-untyped]
 
         # Keep lightweight: no performance tracing; error-only.
-        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
-    except ImportError:
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)  # type: ignore
+    except Exception:
         # Never let observability break the app.
         pass
 
@@ -185,7 +186,10 @@ app = FastAPI(title="Single Compassionate Loop API", version="0.0.1")
 
 
 @app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
+async def rate_limit_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[StarletteResponse]],
+) -> StarletteResponse:
     # Rate limit ONLY POST /check-in
     if request.method.upper() == "POST" and request.url.path == "/check-in":
         key = get_rate_key(request)
