@@ -8,11 +8,12 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Deque, Dict, List, Literal, Optional, Tuple
+from typing import Awaitable, Callable, Deque, Dict, List, Literal, Optional, Tuple
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
+from starlette.responses import Response as StarletteResponse
 
 APP_START_TS = time.time()
 
@@ -30,10 +31,10 @@ SENTRY_DSN = os.getenv("SENTRY_DSN")
 LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "false").lower() == "true"
 if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
     try:
-        import sentry_sdk  # type: ignore
+        import sentry_sdk  # type: ignore[import-untyped]
 
         # Keep lightweight: no performance tracing; error-only.
-        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)  # type: ignore
     except Exception:
         # Never let observability break the app.
         pass
@@ -64,8 +65,8 @@ _handler.setFormatter(JsonFormatter())
 logger.setLevel(logging.INFO)
 logger.handlers = [_handler]
 
-# Note: we intentionally do NOT touch Uvicorn access logs here; ensure deployment
-# config avoids IP/UA in sinks.
+# Note: we intentionally do NOT touch Uvicorn access logs here;
+# ensure deployment config avoids IP/UA in sinks.
 
 
 @dataclass
@@ -185,7 +186,10 @@ app = FastAPI(title="Single Compassionate Loop API", version="0.0.1")
 
 
 @app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
+async def rate_limit_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[StarletteResponse]],
+) -> StarletteResponse:
     # Rate limit ONLY POST /check-in
     if request.method.upper() == "POST" and request.url.path == "/check-in":
         key = get_rate_key(request)
