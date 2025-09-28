@@ -64,8 +64,8 @@ _handler.setFormatter(JsonFormatter())
 logger.setLevel(logging.INFO)
 logger.handlers = [_handler]
 
-# Note: we intentionally do NOT touch Uvicorn access logs here; ensure deployment config avoids
-# IP/UA in sinks.
+# Note: we intentionally do NOT touch Uvicorn access logs here; ensure deployment
+# config avoids IP/UA in sinks.
 
 
 @dataclass
