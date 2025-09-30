@@ -164,9 +164,9 @@ def get_rate_key(request: Request) -> str:
 
 
 app = FastAPI(
-    title="Single Compassionate Loop API", 
+    title="Single Compassionate Loop API",
     version="0.0.1",
-    description="API for compassionate mental health check-ins and consent management"
+    description="API for compassionate mental health check-ins and consent management",
 )
 
 
@@ -186,7 +186,7 @@ async def rate_limit_middleware(request: Request, call_next):
                     "limit": "5 requests per 10 seconds",
                     "troubleshooting": (
                         "Space out check-in submissions or implement exponential backoff"
-                    )
+                    ),
                 },
             )
     response = await call_next(request)
@@ -220,38 +220,40 @@ async def metrics() -> PlainTextResponse:
 @app.get("/help")
 async def help_endpoint() -> JSONResponse:
     """Provide API usage information and troubleshooting guidance."""
-    return JSONResponse({
-        "api_info": {
-            "title": "Single Compassionate Loop API",
-            "version": "0.0.1",
-            "description": "API for compassionate mental health check-ins and consent management"
-        },
-        "endpoints": {
-            "health_checks": {
-                "GET /healthz": "Basic health check - returns 'ok'",
-                "GET /readyz": "Readiness check with uptime",
-                "GET /metrics": "Prometheus-style metrics"
+    return JSONResponse(
+        {
+            "api_info": {
+                "title": "Single Compassionate Loop API",
+                "version": "0.0.1",
+                "description": (
+                    "API for compassionate mental health check-ins and consent management"
+                ),
             },
-            "consent_management": {
-                "POST /consents": "Submit user consent",
-                "GET /consents/{user_id}": "Retrieve consent record"
+            "endpoints": {
+                "health_checks": {
+                    "GET /healthz": "Basic health check - returns 'ok'",
+                    "GET /readyz": "Readiness check with uptime",
+                    "GET /metrics": "Prometheus-style metrics",
+                },
+                "consent_management": {
+                    "POST /consents": "Submit user consent",
+                    "GET /consents/{user_id}": "Retrieve consent record",
+                },
+                "check_ins": {"POST /check-in": "Submit check-in data (rate limited: 5/10s)"},
             },
-            "check_ins": {
-                "POST /check-in": "Submit check-in data (rate limited: 5/10s)"
-            }
-        },
-        "common_errors": {
-            "HTTP_429": "Rate limited - wait 10 seconds before retry",
-            "HTTP_422": "Validation error - check request format",
-            "HTTP_404": "Resource not found - verify user_id exists",
-            "insufficient_data": "Need 3+ check-ins for scoring"
-        },
-        "troubleshooting": {
-            "documentation": "/docs/troubleshooting.md",
-            "api_docs": "/docs (Swagger UI)",
-            "test_connectivity": "curl http://127.0.0.1:8000/healthz"
+            "common_errors": {
+                "HTTP_429": "Rate limited - wait 10 seconds before retry",
+                "HTTP_422": "Validation error - check request format",
+                "HTTP_404": "Resource not found - verify user_id exists",
+                "insufficient_data": "Need 3+ check-ins for scoring",
+            },
+            "troubleshooting": {
+                "documentation": "/docs/troubleshooting.md",
+                "api_docs": "/docs (Swagger UI)",
+                "test_connectivity": "curl http://127.0.0.1:8000/healthz",
+            },
         }
-    })
+    )
 
 
 @app.exception_handler(ValidationError)
@@ -265,10 +267,10 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
             "errors": exc.errors(),
             "troubleshooting": {
                 "check_required_fields": "Ensure all required fields are present",
-                "verify_data_types": "Check that field types match expectations", 
-                "api_help": "/help for endpoint documentation"
-            }
-        }
+                "verify_data_types": "Check that field types match expectations",
+                "api_help": "/help for endpoint documentation",
+            },
+        },
     )
 
 
@@ -292,19 +294,19 @@ async def get_consents(user_id: str):
         return JSONResponse(
             status_code=400,
             content={
-                "detail": "invalid_user_id", 
+                "detail": "invalid_user_id",
                 "message": "user_id cannot be empty",
-                "troubleshooting": "Provide a valid non-empty user_id"
-            }
+                "troubleshooting": "Provide a valid non-empty user_id",
+            },
         )
-    
+
     c = CONSENTS.get(user_id)
     if not c:
         logger.info("consent_not_found user_id_redacted")
         return {
             "detail": "not_found",
             "message": "No consent record found for user",
-            "troubleshooting": "Submit consent via POST /consents first"
+            "troubleshooting": "Submit consent via POST /consents first",
         }
     return c
 
@@ -321,9 +323,10 @@ async def check_in(payload: CheckIn, response: Response) -> CheckInResponse:
             score=None,
             reflection=(
                 f"You have submitted {len(history)} check-in(s). "
-                f"Please submit {3-len(history)} more to receive personalized scoring and feedback."
+                f"Please submit {3 - len(history)} more to receive "
+                f"personalized scoring and feedback."
             ),
-            footer="Keep checking in - your data helps us provide better support."
+            footer="Keep checking in - your data helps us provide better support.",
         )
 
     score, reflection, footer = v0_score(history)

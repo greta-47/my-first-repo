@@ -21,7 +21,7 @@ def test_insufficient_data_before_three_checkins():
     assert response_data["state"] == "insufficient_data"
     assert "1 check-in" in response_data["reflection"]
     assert "2 more" in response_data["reflection"]
-    
+
     r2 = client.post("/check-in", json=p)
     assert r2.status_code == 200
     response_data = r2.json()
@@ -70,7 +70,7 @@ def test_rate_limit_returns_429_after_rapid_calls():
             rate_limit_response = r.json()
             break
         ok += 1
-    
+
     assert hit_429, "Expected 429 after rapid calls"
     assert rate_limit_response is not None
     assert "retry_after_seconds" in rate_limit_response
@@ -95,12 +95,12 @@ def test_help_endpoint():
     response = client.get("/help")
     assert response.status_code == 200
     data = response.json()
-    
+
     assert "api_info" in data
     assert "endpoints" in data
     assert "common_errors" in data
     assert "troubleshooting" in data
-    
+
     # Check specific content
     assert data["api_info"]["title"] == "Single Compassionate Loop API"
     assert "HTTP_429" in data["common_errors"]
@@ -112,7 +112,7 @@ def test_consent_not_found_provides_troubleshooting():
     response = client.get("/consents/nonexistent_user")
     assert response.status_code == 200  # Returns 200 with error details
     data = response.json()
-    
+
     assert data["detail"] == "not_found"
     assert "troubleshooting" in data
     assert "POST /consents" in data["troubleshooting"]
@@ -123,6 +123,6 @@ def test_empty_user_id_validation():
     response = client.get("/consents/ ")  # Space only
     assert response.status_code == 400
     data = response.json()
-    
+
     assert data["detail"] == "invalid_user_id"
     assert "troubleshooting" in data
