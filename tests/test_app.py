@@ -59,6 +59,15 @@ def test_rate_limit_returns_429_after_rapid_calls():
         r = client.post("/check-in", json=p)
         if r.status_code == 429:
             hit_429 = True
+            # Verify standardized error format
+            body = r.json()
+            assert body["status"] == "error"
+            assert body["error"]["code"] == "E_RATE_LIMITED"
+            assert body["error"]["type"] == "https://recoveryos.org/errors/rate-limit"
+            assert body["error"]["title"] == "Rate Limit Exceeded"
+            assert "10 seconds" in body["error"]["detail"]
+            assert "help_url" in body["error"]
+            assert "meta" in body
             break
         ok += 1
     assert hit_429, "Expected 429 after rapid calls"
@@ -77,80 +86,180 @@ def test_consents_roundtrip():
     assert getr.json()["accepted"] is True
 
 
-def test_troubleshoot_general_issue():
-    """Test troubleshooting endpoint with general issue type."""
-    r = client.post("/troubleshoot", json={"issue_type": "general"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["issue_type"] == "general"
-    assert "steps" in body
-    assert len(body["steps"]) >= 3
-    assert body["steps"][0]["step"] == 1
-    assert "additional_resources" in body
+# ---- Troubleshoot tests (keep) ----
+def test_troubleshoot_valid_issue_types():
+    valid_issues = ["login", "check-in", "consent", "network"]
+    for issue_type in valid_issues:
+        response = client.post("/troubleshoot", json={"issue_type": issue_type})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["issue_type"] == issue_type
+        assert "identified_issue" in body
+        assert "steps" in body and len(body["steps"]) > 0
+        assert "additional_resources" in body
+        for step in body["steps"]:
+            assert (
+                "step_number" in step
+                and "title" in step
+                and "description" in step
+                and "action" in step
+            )
 
 
-def test_troubleshoot_login_issue():
-    """Test troubleshooting endpoint with login issue type."""
-    r = client.post("/troubleshoot", json={"issue_type": "login"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["issue_type"] == "login"
+def test_troubleshoot_invalid_issue_type_empty():
+    response = client.post("/troubleshoot", json={"issue_type": ""})
+    assert response.status_code == 422
+
+
+def test_troubleshoot_invalid_issue_type_too_long():
+    long_issue_type = "a" * 101
+    response = client.post("/troubleshoot", json={"issue_type": long_issue_type})
+    assert response.status_code == 422
+
+
+def test_troubleshoot_unknown_issue_type():
+    response = client.post("/troubleshoot", json={"issue_type": "unknown_issue"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["issue_type"] == "unknown_issue"
+    assert body["identified_issue"] == "General technical difficulties"
     assert len(body["steps"]) == 5
-    assert "username" in body["steps"][0]["description"].lower()
-    assert "internet" in body["steps"][1]["description"].lower()
 
 
-def test_troubleshoot_with_error_message():
-    """Test troubleshooting endpoint with error message context."""
-    r = client.post(
+def test_troubleshoot_long_error_message():
+    long_error_msg = "error " * 201
+    response = client.post(
+        "/troubleshoot", json={"issue_type": "login", "error_message": long_error_msg}
+    )
+    assert response.status_code == 422
+
+
+def test_troubleshoot_with_valid_error_message():
+    response = client.post(
         "/troubleshoot",
-        json={"issue_type": "connection", "error_message": "Connection timeout after 30 seconds"},
+        json={
+            "issue_type": "login",
+            "error_message": "Invalid username or password",
+            "user_context": "Using mobile browser",
+        },
     )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["issue_type"] == "connection"
-
-    # Should have original connection steps plus context-specific step
-    assert len(body["steps"]) == 4  # 3 connection steps + 1 context step
-
-    # Last step should reference the error message
-    last_step = body["steps"][-1]
-    assert "Connection timeout" in last_step["description"]
+    assert response.status_code == 200
+    body = response.json()
+    assert body["issue_type"] == "login"
+    assert "Authentication or login difficulties" in body["identified_issue"]
 
 
-def test_troubleshoot_data_issue():
-    """Test troubleshooting endpoint with data issue type."""
-    r = client.post("/troubleshoot", json={"issue_type": "data"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["issue_type"] == "data"
-    assert len(body["steps"]) == 3
-    assert "fields" in body["steps"][0]["description"].lower()
+def test_troubleshoot_partial_match_issue_type():
+    response = client.post("/troubleshoot", json={"issue_type": "login problems"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["issue_type"] == "login problems"
+    assert "Authentication or login difficulties" in body["identified_issue"]
 
 
-def test_troubleshoot_performance_issue():
-    """Test troubleshooting endpoint with performance issue type."""
-    r = client.post("/troubleshoot", json={"issue_type": "performance"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["issue_type"] == "performance"
-    assert len(body["steps"]) == 3
-    assert "device" in body["steps"][0]["description"].lower()
-
-
-def test_troubleshoot_with_long_error_message():
-    """Test troubleshooting endpoint truncates very long error messages."""
-    long_error = (
-        "This is a very long error message that exceeds one hundred characters and should be "
-        "truncated by the system to prevent overly verbose descriptions from cluttering the "
-        "response"
+def test_troubleshoot_user_context_too_long():
+    long_context = "context " * 72
+    response = client.post(
+        "/troubleshoot", json={"issue_type": "login", "user_context": long_context}
     )
+    assert response.status_code == 422
 
-    r = client.post("/troubleshoot", json={"issue_type": "general", "error_message": long_error})
+
+def test_troubleshoot_missing_required_fields():
+    response = client.post("/troubleshoot", json={})
+    assert response.status_code == 422
+
+
+def test_troubleshoot_privacy_safe_logging():
+    response = client.post(
+        "/troubleshoot",
+        json={
+            "issue_type": "login",
+            "error_message": "sensitive error details here",
+            "user_context": "personal information context",
+        },
+    )
+    assert response.status_code == 200
+
+
+# ---- Help/Error tests (keep) ----
+def test_consent_not_found_returns_standardized_error():
+    r = client.get("/consents/nonexistent_user")
+    assert r.status_code == 404
+    body = r.json()
+    assert body["status"] == "error"
+    assert body["error"]["code"] == "E_CONSENT_NOT_FOUND"
+    assert body["error"]["type"] == "https://recoveryos.org/errors/not-found"
+    assert body["error"]["title"] == "Consent Record Not Found"
+    assert "user ID" in body["error"]["detail"]
+    assert "help_url" in body
+    assert "meta" in body
+    assert "timestamp" in body["meta"]
+
+
+def test_help_endpoint_provides_comprehensive_information():
+    r = client.get("/help")
     assert r.status_code == 200
     body = r.json()
+    assert "api_version" in body and body["api_version"] == "0.0.1"
+    assert "documentation_url" in body and "support_contact" in body
+    assert "endpoints" in body and "error_types" in body and "troubleshooting" in body
+    endpoints = {ep["name"]: ep for ep in body["endpoints"]}
+    for name in [
+        "POST /check-in",
+        "POST /consents",
+        "GET /consents/{user_id}",
+        "GET /healthz",
+        "GET /readyz",
+        "GET /metrics",
+    ]:
+        assert name in endpoints
+    for endpoint in body["endpoints"]:
+        assert endpoint["description"]
+        assert endpoint["url"]
+        assert endpoint["status_codes"] and len(endpoint["status_codes"]) > 0
+    for key in ["validation", "business-rule", "rate-limit", "not-found", "authorization"]:
+        assert key in body["error_types"]
+    for key in [
+        "rate_limited",
+        "insufficient_data",
+        "validation_failed",
+        "consent_not_found",
+        "high_risk_response",
+    ]:
+        assert key in body["troubleshooting"]
 
-    # Should have general steps plus context step
-    context_step = body["steps"][-1]
-    assert "..." in context_step["description"]
-    assert len(context_step["description"]) < len(long_error) + 50  # Much shorter than original
+
+def test_help_endpoint_troubleshooting_links_are_valid():
+    r = client.get("/help")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["documentation_url"].startswith("https://docs.recoveryos.org")
+    for _, url in body["error_types"].items():
+        assert url.startswith("https://docs.recoveryos.org/api/")
+        assert len(url) > len("https://docs.recoveryos.org/api/")
+    for endpoint in body["endpoints"]:
+        assert endpoint["url"].startswith("https://docs.recoveryos.org/api/")
+    for _, guidance in body["troubleshooting"].items():
+        assert len(guidance) > 20
+        assert any(
+            w in guidance.lower() for w in ["check", "ensure", "contact", "wait", "continue"]
+        )
+
+
+def test_help_endpoint_status_codes_accuracy():
+    r = client.get("/help")
+    assert r.status_code == 200
+    body = r.json()
+    endpoints = {ep["name"]: ep for ep in body["endpoints"]}
+    checkin_codes = endpoints["POST /check-in"]["status_codes"]
+    assert (
+        "200" in checkin_codes
+        and ("400" in checkin_codes or "422" in checkin_codes)
+        and "429" in checkin_codes
+    )
+    consent_codes = endpoints["GET /consents/{user_id}"]["status_codes"]
+    assert "200" in consent_codes and "404" in consent_codes
+    assert "200" in endpoints["GET /healthz"]["status_codes"]
+    assert "200" in endpoints["GET /readyz"]["status_codes"]
+    assert "200" in endpoints["GET /metrics"]["status_codes"]

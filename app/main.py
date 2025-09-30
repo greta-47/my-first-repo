@@ -8,7 +8,7 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, Deque, Dict, List, Literal, Optional, Tuple
+from typing import Awaitable, Callable, Deque, Dict, List, Literal, Optional, Tuple, TypedDict
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 from starlette.responses import Response as StarletteResponse
 
 APP_START_TS = time.time()
+
+MAX_ERROR_MESSAGE_LENGTH = 100
 
 
 def iso_now() -> str:
@@ -140,169 +142,82 @@ class CheckInResponse(BaseModel):
     footer: Optional[str] = None
 
 
-class TroubleshootingRequest(BaseModel):
-    issue_type: Literal["login", "connection", "data", "performance", "general"] = "general"
-    error_message: Optional[str] = None
-    user_agent: Optional[str] = None
-    additional_context: Optional[str] = None
+class TroubleshootPayload(BaseModel):
+    issue_type: str = Field(min_length=1, max_length=100)
+    error_message: Optional[str] = Field(default=None, max_length=1000)
+    user_context: Optional[str] = Field(default=None, max_length=500)
 
 
-class TroubleshootingStep(BaseModel):
-    step: int
+class TroubleshootStep(BaseModel):
+    step_number: int
     title: str
     description: str
-    action: Optional[str] = None
+    action: str
 
 
-class TroubleshootingResponse(BaseModel):
+class TroubleshootResponse(BaseModel):
     issue_type: str
-    steps: List[TroubleshootingStep]
-    emergency_contact: Optional[str] = None
-    additional_resources: List[str] = []
+    identified_issue: str
+    steps: List[TroubleshootStep]
+    additional_resources: List[str]
 
 
-def generate_troubleshooting_steps(request: TroubleshootingRequest) -> TroubleshootingResponse:
-    """Generate structured troubleshooting steps based on issue type."""
+class ErrorDetail(BaseModel):
+    type: str
+    title: str
+    detail: Optional[str] = None
+    code: str
+    help_url: Optional[str] = None
 
-    common_steps = {
-        "login": [
-            TroubleshootingStep(
-                step=1,
-                title="Verify Credentials",
-                description="Double-check your username/email and password for accuracy.",
-                action="Re-enter login information carefully",
-            ),
-            TroubleshootingStep(
-                step=2,
-                title="Check Network Connection",
-                description="Ensure you have a stable internet connection.",
-                action="Try accessing other websites or restart your connection",
-            ),
-            TroubleshootingStep(
-                step=3,
-                title="Clear Browser Data",
-                description="Clear cache, cookies, and browser data that might be interfering.",
-                action="Clear browser cache and cookies, then try again",
-            ),
-            TroubleshootingStep(
-                step=4,
-                title="Try Different Browser",
-                description="Test with a different browser or incognito/private mode.",
-                action="Use Chrome, Firefox, or Safari in private browsing mode",
-            ),
-            TroubleshootingStep(
-                step=5,
-                title="Check Service Status",
-                description="Verify that the service is not experiencing outages.",
-                action="Visit our status page or contact support if issues persist",
-            ),
-        ],
-        "connection": [
-            TroubleshootingStep(
-                step=1,
-                title="Check Internet Connection",
-                description="Verify your device is connected to the internet.",
-                action="Test connection by visiting other websites",
-            ),
-            TroubleshootingStep(
-                step=2,
-                title="Restart Network",
-                description="Restart your router/modem or reconnect to WiFi.",
-                action="Unplug router for 30 seconds, then reconnect",
-            ),
-            TroubleshootingStep(
-                step=3,
-                title="Check Firewall Settings",
-                description="Ensure no firewall or security software is blocking access.",
-                action="Temporarily disable firewall or add exception",
-            ),
-        ],
-        "data": [
-            TroubleshootingStep(
-                step=1,
-                title="Verify Data Format",
-                description="Ensure all required fields are filled with valid values.",
-                action="Check that dates, numbers, and text fields contain appropriate data",
-            ),
-            TroubleshootingStep(
-                step=2,
-                title="Check Field Limits",
-                description="Verify that input doesn't exceed maximum allowed lengths.",
-                action="Review character limits for text fields",
-            ),
-            TroubleshootingStep(
-                step=3,
-                title="Refresh and Retry",
-                description="Refresh the page and try submitting again.",
-                action="Press F5 or reload the page, then resubmit",
-            ),
-        ],
-        "performance": [
-            TroubleshootingStep(
-                step=1,
-                title="Check System Resources",
-                description="Ensure your device has adequate memory and processing capacity.",
-                action="Close unnecessary applications and browser tabs",
-            ),
-            TroubleshootingStep(
-                step=2,
-                title="Update Browser",
-                description="Use the latest version of your web browser.",
-                action="Update to the newest browser version available",
-            ),
-            TroubleshootingStep(
-                step=3,
-                title="Disable Extensions",
-                description="Temporarily disable browser extensions that might slow performance.",
-                action="Disable ad blockers and other extensions temporarily",
-            ),
-        ],
-        "general": [
-            TroubleshootingStep(
-                step=1,
-                title="Restart Application",
-                description="Close and reopen the application or refresh the page.",
-                action="Fully close and restart the application",
-            ),
-            TroubleshootingStep(
-                step=2,
-                title="Check for Updates",
-                description="Ensure you're using the latest version of the application.",
-                action="Check for and install any available updates",
-            ),
-            TroubleshootingStep(
-                step=3,
-                title="Review Error Messages",
-                description="Look for specific error messages that can guide resolution.",
-                action="Note exact error text and search for specific solutions",
-            ),
-        ],
-    }
 
-    steps = common_steps.get(request.issue_type, common_steps["general"])
+class ErrorResponse(BaseModel):
+    status: Literal["error"] = "error"
+    error: ErrorDetail
+    meta: Optional[Dict[str, str]] = None
 
-    # Add context-specific step if error message provided
-    if request.error_message:
-        error_msg = request.error_message[:100]
-        if len(request.error_message) > 100:
-            error_msg += "..."
-        context_step = TroubleshootingStep(
-            step=len(steps) + 1,
-            title="Address Specific Error",
-            description=f"Error reported: {error_msg}",
-            action="Contact support with this specific error message if other steps don't resolve",
-        )
-        steps.append(context_step)
 
-    resources = [
-        "Visit our Help Center for detailed guides",
-        "Contact support if issues persist after trying these steps",
-        "Check our Community Forum for similar issues and solutions",
-    ]
+class HelpEndpoint(BaseModel):
+    name: str
+    description: str
+    url: str
+    status_codes: List[str]
 
-    return TroubleshootingResponse(
-        issue_type=request.issue_type, steps=steps, additional_resources=resources
+
+class HelpResponse(BaseModel):
+    api_version: str
+    documentation_url: str
+    support_contact: str
+    endpoints: List[HelpEndpoint]
+    error_types: Dict[str, str]
+    troubleshooting: Dict[str, str]
+
+
+def create_error_response(
+    error_type: str,
+    title: str,
+    detail: Optional[str] = None,
+    code: str = "",
+    help_url: Optional[str] = None,
+    status_code: int = 400,
+) -> JSONResponse:
+    """Create a standardized error response following Problem Details format."""
+    error_detail = ErrorDetail(
+        type=f"https://recoveryos.org/errors/{error_type}",
+        title=title,
+        detail=detail,
+        code=code,
+        help_url=help_url or f"https://docs.recoveryos.org/api/{error_type}",
     )
+    error_response = ErrorResponse(
+        error=error_detail,
+        meta={
+            "timestamp": iso_now(),
+            "request_id": "redacted",
+        },
+    )
+    content = error_response.model_dump()
+    content["help_url"] = error_detail.help_url
+    return JSONResponse(status_code=status_code, content=content)
 
 
 def v0_score(checkins: List[CheckIn]) -> Tuple[int, str, str]:
@@ -347,6 +262,218 @@ def get_rate_key(request: Request) -> str:
     return anon_key(ip, ua)
 
 
+class TroubleshootConfig(TypedDict):
+    identified_issue: str
+    steps: List[TroubleshootStep]
+    additional_resources: List[str]
+
+
+def generate_troubleshoot_steps(
+    issue_type: str, error_message: Optional[str] = None
+) -> TroubleshootResponse:
+    """
+    Generate structured troubleshooting steps for common issues.
+    Privacy-first: no user data is logged, only issue types and structured responses.
+    """
+    # Normalize issue type for matching
+    normalized_issue = issue_type.lower().strip()
+
+    # Define troubleshooting knowledge base
+    troubleshoot_db: Dict[str, TroubleshootConfig] = {
+        "login": {
+            "identified_issue": "Authentication or login difficulties",
+            "steps": [
+                TroubleshootStep(
+                    step_number=1,
+                    title="Verify credentials",
+                    description="Check username and password",
+                    action="Re-enter login credentials carefully",
+                ),
+                TroubleshootStep(
+                    step_number=2,
+                    title="Clear browser cache",
+                    description="Browser data may be corrupted",
+                    action="Clear cache and cookies for this site",
+                ),
+                TroubleshootStep(
+                    step_number=3,
+                    title="Try different browser",
+                    description="Browser-specific issues may occur",
+                    action="Use Chrome, Firefox, or Safari",
+                ),
+                TroubleshootStep(
+                    step_number=4,
+                    title="Check internet connection",
+                    description="Verify network connectivity",
+                    action="Test with other websites",
+                ),
+            ],
+            "additional_resources": [
+                "Password reset link available on login page",
+                "Contact support if issues persist",
+            ],
+        },
+        "check-in": {
+            "identified_issue": "Issues with submitting or viewing check-ins",
+            "steps": [
+                TroubleshootStep(
+                    step_number=1,
+                    title="Validate input data",
+                    description="Check all required fields are filled",
+                    action="Ensure all values are within expected ranges",
+                ),
+                TroubleshootStep(
+                    step_number=2,
+                    title="Check rate limits",
+                    description="Too many requests may be blocked",
+                    action="Wait a few seconds before retrying",
+                ),
+                TroubleshootStep(
+                    step_number=3,
+                    title="Refresh the page",
+                    description="Clear any temporary state issues",
+                    action="Reload the page and try again",
+                ),
+                TroubleshootStep(
+                    step_number=4,
+                    title="Verify consent status",
+                    description="Check if consent has been given",
+                    action="Complete consent process if required",
+                ),
+            ],
+            "additional_resources": [
+                "Check-in requires 3 submissions before scoring",
+                "Contact support for persistent issues",
+            ],
+        },
+        "consent": {
+            "identified_issue": "Problems with consent management",
+            "steps": [
+                TroubleshootStep(
+                    step_number=1,
+                    title="Review terms",
+                    description="Ensure you understand the consent terms",
+                    action="Read the terms and conditions carefully",
+                ),
+                TroubleshootStep(
+                    step_number=2,
+                    title="Check required fields",
+                    description="All consent fields must be completed",
+                    action="Verify user ID and terms version are provided",
+                ),
+                TroubleshootStep(
+                    step_number=3,
+                    title="Refresh consent status",
+                    description="Check current consent state",
+                    action="Use the consent lookup endpoint",
+                ),
+                TroubleshootStep(
+                    step_number=4,
+                    title="Re-submit consent",
+                    description="Clear and resubmit consent data",
+                    action="Submit new consent with correct information",
+                ),
+            ],
+            "additional_resources": [
+                "Consent can be updated at any time",
+                "Terms version must match current system version",
+            ],
+        },
+        "network": {
+            "identified_issue": "Network connectivity or API communication issues",
+            "steps": [
+                TroubleshootStep(
+                    step_number=1,
+                    title="Check internet connection",
+                    description="Verify basic connectivity",
+                    action="Test internet access with other sites",
+                ),
+                TroubleshootStep(
+                    step_number=2,
+                    title="Try different network",
+                    description="Switch networks if possible",
+                    action="Use mobile data or different WiFi",
+                ),
+                TroubleshootStep(
+                    step_number=3,
+                    title="Check service status",
+                    description="Verify API availability",
+                    action="Check system status page or contact support",
+                ),
+                TroubleshootStep(
+                    step_number=4,
+                    title="Review request format",
+                    description="Ensure API calls are properly formatted",
+                    action="Verify request headers and data structure",
+                ),
+            ],
+            "additional_resources": [
+                "API documentation available for developers",
+                "Service status updates posted on status page",
+            ],
+        },
+    }
+
+    # Find matching issue type or provide generic response
+    config: TroubleshootConfig
+    if normalized_issue in troubleshoot_db:
+        config = troubleshoot_db[normalized_issue]
+    elif any(key in normalized_issue for key in troubleshoot_db.keys()):
+        # Partial match - find the best match
+        best_match = next(
+            (key for key in troubleshoot_db.keys() if key in normalized_issue), "login"
+        )
+        config = troubleshoot_db[best_match]
+    else:
+        # Generic troubleshooting steps for unknown issues
+        config = {
+            "identified_issue": "General technical difficulties",
+            "steps": [
+                TroubleshootStep(
+                    step_number=1,
+                    title="Refresh the page",
+                    description="Clear temporary browser state",
+                    action="Reload the current page",
+                ),
+                TroubleshootStep(
+                    step_number=2,
+                    title="Clear browser cache",
+                    description="Remove stored data that may be corrupted",
+                    action="Clear cache and cookies",
+                ),
+                TroubleshootStep(
+                    step_number=3,
+                    title="Try different browser",
+                    description="Browser compatibility issues",
+                    action="Use a different web browser",
+                ),
+                TroubleshootStep(
+                    step_number=4,
+                    title="Check system requirements",
+                    description="Verify browser and system compatibility",
+                    action="Ensure using supported browser version",
+                ),
+                TroubleshootStep(
+                    step_number=5,
+                    title="Contact support",
+                    description="Get personalized assistance",
+                    action="Provide specific error details to support team",
+                ),
+            ],
+            "additional_resources": [
+                "System requirements documentation available",
+                "Support available during business hours",
+            ],
+        }
+
+    return TroubleshootResponse(
+        issue_type=issue_type,
+        identified_issue=config["identified_issue"],
+        steps=config["steps"],
+        additional_resources=config["additional_resources"],
+    )
+
+
 app = FastAPI(title="Single Compassionate Loop API", version="0.0.1")
 
 
@@ -360,9 +487,12 @@ async def rate_limit_middleware(
         key = get_rate_key(request)
         if not RATE_LIMIT.allow(key):
             logger.info("rate_limited")
-            return JSONResponse(
+            return create_error_response(
+                error_type="rate-limit",
+                title="Rate Limit Exceeded",
+                detail="Maximum 5 check-ins per 10 seconds allowed",
+                code="E_RATE_LIMITED",
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={"detail": "rate_limited"},
             )
     response = await call_next(request)
     return response
@@ -392,6 +522,90 @@ async def metrics() -> PlainTextResponse:
     return PlainTextResponse("\n".join(lines))
 
 
+@app.get("/help", response_model=HelpResponse)
+async def help_endpoint() -> HelpResponse:
+    """
+    Provides comprehensive API help, troubleshooting information, and documentation links.
+    """
+    endpoints = [
+        HelpEndpoint(
+            name="POST /check-in",
+            description="Submit mental health check-in data and receive risk scoring",
+            url="https://docs.recoveryos.org/api/check-in",
+            status_codes=["200", "400", "422", "429"],
+        ),
+        HelpEndpoint(
+            name="POST /consents",
+            description="Record user consent for data processing",
+            url="https://docs.recoveryos.org/api/consents",
+            status_codes=["200", "400"],
+        ),
+        HelpEndpoint(
+            name="GET /consents/{user_id}",
+            description="Retrieve consent record for a specific user",
+            url="https://docs.recoveryos.org/api/consents",
+            status_codes=["200", "404"],
+        ),
+        HelpEndpoint(
+            name="GET /healthz",
+            description="Health check endpoint for monitoring",
+            url="https://docs.recoveryos.org/api/health",
+            status_codes=["200"],
+        ),
+        HelpEndpoint(
+            name="GET /readyz",
+            description="Readiness check with system status",
+            url="https://docs.recoveryos.org/api/health",
+            status_codes=["200"],
+        ),
+        HelpEndpoint(
+            name="GET /metrics",
+            description="Prometheus-compatible metrics endpoint",
+            url="https://docs.recoveryos.org/api/metrics",
+            status_codes=["200"],
+        ),
+    ]
+
+    error_types = {
+        "validation": "https://docs.recoveryos.org/api/validation-errors",
+        "business-rule": "https://docs.recoveryos.org/api/business-logic-errors",
+        "rate-limit": "https://docs.recoveryos.org/api/rate-limiting",
+        "not-found": "https://docs.recoveryos.org/api/not-found-errors",
+        "authorization": "https://docs.recoveryos.org/api/authorization-errors",
+    }
+
+    troubleshooting = {
+        "rate_limited": (
+            "If you're hitting rate limits, wait 10 seconds between check-in requests. "
+            "Each client is limited to 5 requests per 10-second window."
+        ),
+        "insufficient_data": (
+            "Risk scoring requires at least 3 check-ins. "
+            "Continue submitting check-ins to receive meaningful risk assessment."
+        ),
+        "validation_failed": (
+            "Check that all required fields are present and within valid ranges. "
+            "See endpoint documentation for field specifications."
+        ),
+        "consent_not_found": (
+            "Ensure a consent record has been created before attempting to retrieve it."
+        ),
+        "high_risk_response": (
+            "High-risk responses include crisis messaging. "
+            "If you're in danger, contact emergency services immediately."
+        ),
+    }
+
+    return HelpResponse(
+        api_version="0.0.1",
+        documentation_url="https://docs.recoveryos.org/api",
+        support_contact="support@recoveryos.org",
+        endpoints=endpoints,
+        error_types=error_types,
+        troubleshooting=troubleshooting,
+    )
+
+
 @app.post("/consents", response_model=ConsentRecord)
 async def post_consents(payload: ConsentPayload) -> ConsentRecord:
     rec = ConsentRecord(
@@ -405,23 +619,18 @@ async def post_consents(payload: ConsentPayload) -> ConsentRecord:
     return rec
 
 
-@app.get("/consents/{user_id}", response_model=ConsentRecord | Dict[str, str])
+@app.get("/consents/{user_id}", response_model=ConsentRecord)
 async def get_consents(user_id: str):
     c = CONSENTS.get(user_id)
     if not c:
-        return {"detail": "not_found"}
+        return create_error_response(
+            error_type="not-found",
+            title="Consent Record Not Found",
+            detail="No consent record found for user ID",
+            code="E_CONSENT_NOT_FOUND",
+            status_code=404,
+        )
     return c
-
-
-@app.post("/troubleshoot", response_model=TroubleshootingResponse)
-async def troubleshoot(request: TroubleshootingRequest) -> TroubleshootingResponse:
-    """
-    Provide structured troubleshooting steps based on the type of issue reported.
-    Helps users systematically resolve common problems.
-    """
-    logger.info("troubleshooting_request", extra={"issue_type": request.issue_type})
-    response = generate_troubleshooting_steps(request)
-    return response
 
 
 @app.post("/check-in", response_model=CheckInResponse)
@@ -455,3 +664,67 @@ async def check_in(payload: CheckIn, response: Response) -> CheckInResponse:
         reflection=reflection,
         footer=footer,
     )
+
+
+@app.post("/troubleshoot", response_model=TroubleshootResponse)
+async def troubleshoot(payload: TroubleshootPayload) -> TroubleshootResponse:
+    """
+    Provide structured troubleshooting steps for common issues.
+    Privacy-first: logs only issue type categories, never user data.
+    """
+    try:
+        # Generate troubleshooting response
+        response = generate_troubleshoot_steps(payload.issue_type, payload.error_message)
+
+        # Privacy-safe logging: log only sanitized issue type and step count
+        issue_category = payload.issue_type.lower().strip()[:20]  # Truncate for logging
+        logger.info(
+            "troubleshoot_requested %s",
+            json.dumps(
+                {
+                    "issue_category": issue_category,
+                    "steps_provided": len(response.steps),
+                    "has_error_msg": payload.error_message is not None,
+                    "has_context": payload.user_context is not None,
+                },
+                separators=(",", ":"),
+            ),
+        )
+
+        return response
+
+    except Exception as e:
+        # Enhanced logging for debugging unexpected behaviors
+        logger.error(
+            "troubleshoot_error %s",
+            json.dumps(
+                {
+                    "issue_category": payload.issue_type.lower().strip()[:20],
+                    "error_type": type(e).__name__,
+                    "has_error_msg": payload.error_message is not None,
+                    "error_msg_length": len(payload.error_message) if payload.error_message else 0,
+                },
+                separators=(",", ":"),
+            ),
+        )
+
+        # Return generic fallback response
+        return TroubleshootResponse(
+            issue_type=payload.issue_type,
+            identified_issue="Technical difficulties encountered",
+            steps=[
+                TroubleshootStep(
+                    step_number=1,
+                    title="Refresh and retry",
+                    description="Clear current state and try again",
+                    action="Reload the page and resubmit",
+                ),
+                TroubleshootStep(
+                    step_number=2,
+                    title="Contact support",
+                    description="Get assistance with technical issues",
+                    action="Provide error details to support team",
+                ),
+            ],
+            additional_resources=["Support available during business hours"],
+        )
