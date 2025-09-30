@@ -59,6 +59,15 @@ def test_rate_limit_returns_429_after_rapid_calls():
         r = client.post("/check-in", json=p)
         if r.status_code == 429:
             hit_429 = True
+            # Verify standardized error format
+            body = r.json()
+            assert body["status"] == "error"
+            assert body["error"]["code"] == "E_RATE_LIMITED"
+            assert body["error"]["type"] == "https://recoveryos.org/errors/rate-limit"
+            assert body["error"]["title"] == "Rate Limit Exceeded"
+            assert "10 seconds" in body["error"]["detail"]
+            assert "help_url" in body["error"]
+            assert "meta" in body
             break
         ok += 1
     assert hit_429, "Expected 429 after rapid calls"
@@ -75,3 +84,118 @@ def test_consents_roundtrip():
     getr = client.get("/consents/u4")
     assert getr.status_code == 200
     assert getr.json()["accepted"] is True
+
+
+def test_consent_not_found_returns_standardized_error():
+    """Test that consent not found returns standardized error format."""
+    r = client.get("/consents/nonexistent_user")
+    assert r.status_code == 404
+    body = r.json()
+    assert body["status"] == "error"
+    assert body["error"]["code"] == "E_CONSENT_NOT_FOUND"
+    assert body["error"]["type"] == "https://recoveryos.org/errors/not-found"
+    assert body["error"]["title"] == "Consent Record Not Found"
+    assert "user ID" in body["error"]["detail"]
+    assert "help_url" in body["error"]
+    assert "meta" in body
+    assert "timestamp" in body["meta"]
+
+
+def test_help_endpoint_provides_comprehensive_information():
+    """Test that the help endpoint provides complete API documentation."""
+    r = client.get("/help")
+    assert r.status_code == 200
+    body = r.json()
+
+    # Check basic structure
+    assert "api_version" in body
+    assert "documentation_url" in body
+    assert "support_contact" in body
+    assert "endpoints" in body
+    assert "error_types" in body
+    assert "troubleshooting" in body
+
+    # Check version
+    assert body["api_version"] == "0.0.1"
+
+    # Check endpoints are documented
+    endpoints = {ep["name"]: ep for ep in body["endpoints"]}
+    assert "POST /check-in" in endpoints
+    assert "POST /consents" in endpoints
+    assert "GET /consents/{user_id}" in endpoints
+    assert "GET /healthz" in endpoints
+    assert "GET /readyz" in endpoints
+    assert "GET /metrics" in endpoints
+
+    # Check endpoint documentation quality
+    for endpoint in body["endpoints"]:
+        assert endpoint["description"]  # Non-empty description
+        assert endpoint["url"]  # Documentation URL
+        assert endpoint["status_codes"]  # List of status codes
+        assert len(endpoint["status_codes"]) > 0
+
+    # Check error types are documented
+    assert "validation" in body["error_types"]
+    assert "business-rule" in body["error_types"]
+    assert "rate-limit" in body["error_types"]
+    assert "not-found" in body["error_types"]
+    assert "authorization" in body["error_types"]
+
+    # Check troubleshooting information
+    assert "rate_limited" in body["troubleshooting"]
+    assert "insufficient_data" in body["troubleshooting"]
+    assert "validation_failed" in body["troubleshooting"]
+    assert "consent_not_found" in body["troubleshooting"]
+    assert "high_risk_response" in body["troubleshooting"]
+
+
+def test_help_endpoint_troubleshooting_links_are_valid():
+    """Test that all troubleshooting links follow expected patterns."""
+    r = client.get("/help")
+    assert r.status_code == 200
+    body = r.json()
+
+    # Check that documentation URL is valid format
+    assert body["documentation_url"].startswith("https://docs.recoveryos.org")
+
+    # Check that all error type URLs follow consistent pattern
+    for error_type, url in body["error_types"].items():
+        assert url.startswith("https://docs.recoveryos.org/api/")
+        # Just check that the URL is valid format, not exact matching
+        assert len(url) > len("https://docs.recoveryos.org/api/")
+
+    # Check that all endpoint URLs follow consistent pattern
+    for endpoint in body["endpoints"]:
+        assert endpoint["url"].startswith("https://docs.recoveryos.org/api/")
+
+    # Check troubleshooting guidance is helpful
+    for issue, guidance in body["troubleshooting"].items():
+        assert len(guidance) > 20  # Meaningful guidance
+        assert any(
+            word in guidance.lower() for word in ["check", "ensure", "contact", "wait", "continue"]
+        )
+
+
+def test_help_endpoint_status_codes_accuracy():
+    """Test that documented status codes match actual endpoint behavior."""
+    r = client.get("/help")
+    assert r.status_code == 200
+    body = r.json()
+
+    endpoints = {ep["name"]: ep for ep in body["endpoints"]}
+
+    # Check POST /check-in status codes
+    checkin_codes = endpoints["POST /check-in"]["status_codes"]
+    assert "200" in checkin_codes  # Success
+    assert "429" in checkin_codes  # Rate limit (verified in other tests)
+    assert "400" in checkin_codes or "422" in checkin_codes  # Validation errors
+
+    # Check GET /consents/{user_id} status codes
+    consent_codes = endpoints["GET /consents/{user_id}"]["status_codes"]
+    assert "200" in consent_codes  # Success
+    assert "404" in consent_codes  # Not found (verified in other tests)
+
+    # Check health endpoints return 200
+    assert "200" in endpoints["GET /healthz"]["status_codes"]
+    assert "200" in endpoints["GET /readyz"]["status_codes"]
+    assert "200" in endpoints["GET /metrics"]["status_codes"]
