@@ -26,7 +26,7 @@ jobs:
           python -m pip install -U pip==24.2 pip-tools==7.4.1
       - name: Rebuild lockfile (temp)
         run: |
-          pip-compile --cert=None --client-cert=None --generate-hashes --index-url=None --output-file=requirements.temp.lock --pip-args=None requirements.txt
+          pip-compile --generate-hashes --output-file=requirements.temp.lock requirements.txt
       - name: Diff lockfile
         run: |
           diff -u requirements.lock.txt requirements.temp.lock && echo "Lockfile fresh ✅"
