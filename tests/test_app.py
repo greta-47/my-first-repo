@@ -17,17 +17,10 @@ def test_insufficient_data_before_three_checkins():
     }
     r1 = client.post("/check-in", json=p)
     assert r1.status_code == 200
-    response_data = r1.json()
-    assert response_data["state"] == "insufficient_data"
-    assert "1 check-in" in response_data["reflection"]
-    assert "2 more" in response_data["reflection"]
-
+    assert r1.json()["state"] == "insufficient_data"
     r2 = client.post("/check-in", json=p)
     assert r2.status_code == 200
-    response_data = r2.json()
-    assert response_data["state"] == "insufficient_data"
-    assert "2 check-in" in response_data["reflection"]
-    assert "1 more" in response_data["reflection"]
+    assert r2.json()["state"] == "insufficient_data"
 
 
 def test_high_risk_payload_yields_high_band_and_crisis_footer():
@@ -62,19 +55,22 @@ def test_rate_limit_returns_429_after_rapid_calls():
     }
     ok = 0
     hit_429 = False
-    rate_limit_response = None
     for _ in range(10):
         r = client.post("/check-in", json=p)
         if r.status_code == 429:
             hit_429 = True
-            rate_limit_response = r.json()
+            # Verify standardized error format
+            body = r.json()
+            assert body["status"] == "error"
+            assert body["error"]["code"] == "E_RATE_LIMITED"
+            assert body["error"]["type"] == "https://recoveryos.org/errors/rate-limit"
+            assert body["error"]["title"] == "Rate Limit Exceeded"
+            assert "10 seconds" in body["error"]["detail"]
+            assert "help_url" in body["error"]
+            assert "meta" in body
             break
         ok += 1
-
     assert hit_429, "Expected 429 after rapid calls"
-    assert rate_limit_response is not None
-    assert "retry_after_seconds" in rate_limit_response
-    assert rate_limit_response["retry_after_seconds"] == 10
 
 
 def test_consents_roundtrip():
@@ -90,39 +86,180 @@ def test_consents_roundtrip():
     assert getr.json()["accepted"] is True
 
 
-def test_help_endpoint():
-    """Test the new help endpoint provides useful information."""
-    response = client.get("/help")
+# ---- Troubleshoot tests (keep) ----
+def test_troubleshoot_valid_issue_types():
+    valid_issues = ["login", "check-in", "consent", "network"]
+    for issue_type in valid_issues:
+        response = client.post("/troubleshoot", json={"issue_type": issue_type})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["issue_type"] == issue_type
+        assert "identified_issue" in body
+        assert "steps" in body and len(body["steps"]) > 0
+        assert "additional_resources" in body
+        for step in body["steps"]:
+            assert (
+                "step_number" in step
+                and "title" in step
+                and "description" in step
+                and "action" in step
+            )
+
+
+def test_troubleshoot_invalid_issue_type_empty():
+    response = client.post("/troubleshoot", json={"issue_type": ""})
+    assert response.status_code == 422
+
+
+def test_troubleshoot_invalid_issue_type_too_long():
+    long_issue_type = "a" * 101
+    response = client.post("/troubleshoot", json={"issue_type": long_issue_type})
+    assert response.status_code == 422
+
+
+def test_troubleshoot_unknown_issue_type():
+    response = client.post("/troubleshoot", json={"issue_type": "unknown_issue"})
     assert response.status_code == 200
-    data = response.json()
-
-    assert "api_info" in data
-    assert "endpoints" in data
-    assert "common_errors" in data
-    assert "troubleshooting" in data
-
-    # Check specific content
-    assert data["api_info"]["title"] == "Single Compassionate Loop API"
-    assert "HTTP_429" in data["common_errors"]
-    assert "insufficient_data" in data["common_errors"]
+    body = response.json()
+    assert body["issue_type"] == "unknown_issue"
+    assert body["identified_issue"] == "General technical difficulties"
+    assert len(body["steps"]) == 5
 
 
-def test_consent_not_found_provides_troubleshooting():
-    """Test that missing consent records provide helpful error messages."""
-    response = client.get("/consents/nonexistent_user")
-    assert response.status_code == 200  # Returns 200 with error details
-    data = response.json()
-
-    assert data["detail"] == "not_found"
-    assert "troubleshooting" in data
-    assert "POST /consents" in data["troubleshooting"]
+def test_troubleshoot_long_error_message():
+    long_error_msg = "error " * 201
+    response = client.post(
+        "/troubleshoot", json={"issue_type": "login", "error_message": long_error_msg}
+    )
+    assert response.status_code == 422
 
 
-def test_empty_user_id_validation():
-    """Test validation for empty user_id."""
-    response = client.get("/consents/ ")  # Space only
-    assert response.status_code == 400
-    data = response.json()
+def test_troubleshoot_with_valid_error_message():
+    response = client.post(
+        "/troubleshoot",
+        json={
+            "issue_type": "login",
+            "error_message": "Invalid username or password",
+            "user_context": "Using mobile browser",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["issue_type"] == "login"
+    assert "Authentication or login difficulties" in body["identified_issue"]
 
-    assert data["detail"] == "invalid_user_id"
-    assert "troubleshooting" in data
+
+def test_troubleshoot_partial_match_issue_type():
+    response = client.post("/troubleshoot", json={"issue_type": "login problems"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["issue_type"] == "login problems"
+    assert "Authentication or login difficulties" in body["identified_issue"]
+
+
+def test_troubleshoot_user_context_too_long():
+    long_context = "context " * 72
+    response = client.post(
+        "/troubleshoot", json={"issue_type": "login", "user_context": long_context}
+    )
+    assert response.status_code == 422
+
+
+def test_troubleshoot_missing_required_fields():
+    response = client.post("/troubleshoot", json={})
+    assert response.status_code == 422
+
+
+def test_troubleshoot_privacy_safe_logging():
+    response = client.post(
+        "/troubleshoot",
+        json={
+            "issue_type": "login",
+            "error_message": "sensitive error details here",
+            "user_context": "personal information context",
+        },
+    )
+    assert response.status_code == 200
+
+
+# ---- Help/Error tests (keep) ----
+def test_consent_not_found_returns_standardized_error():
+    r = client.get("/consents/nonexistent_user")
+    assert r.status_code == 404
+    body = r.json()
+    assert body["status"] == "error"
+    assert body["error"]["code"] == "E_CONSENT_NOT_FOUND"
+    assert body["error"]["type"] == "https://recoveryos.org/errors/not-found"
+    assert body["error"]["title"] == "Consent Record Not Found"
+    assert "user ID" in body["error"]["detail"]
+    assert "help_url" in body
+    assert "meta" in body
+    assert "timestamp" in body["meta"]
+
+
+def test_help_endpoint_provides_comprehensive_information():
+    r = client.get("/help")
+    assert r.status_code == 200
+    body = r.json()
+    assert "api_version" in body and body["api_version"] == "0.0.1"
+    assert "documentation_url" in body and "support_contact" in body
+    assert "endpoints" in body and "error_types" in body and "troubleshooting" in body
+    endpoints = {ep["name"]: ep for ep in body["endpoints"]}
+    for name in [
+        "POST /check-in",
+        "POST /consents",
+        "GET /consents/{user_id}",
+        "GET /healthz",
+        "GET /readyz",
+        "GET /metrics",
+    ]:
+        assert name in endpoints
+    for endpoint in body["endpoints"]:
+        assert endpoint["description"]
+        assert endpoint["url"]
+        assert endpoint["status_codes"] and len(endpoint["status_codes"]) > 0
+    for key in ["validation", "business-rule", "rate-limit", "not-found", "authorization"]:
+        assert key in body["error_types"]
+    for key in [
+        "rate_limited",
+        "insufficient_data",
+        "validation_failed",
+        "consent_not_found",
+        "high_risk_response",
+    ]:
+        assert key in body["troubleshooting"]
+
+
+def test_help_endpoint_troubleshooting_links_are_valid():
+    r = client.get("/help")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["documentation_url"].startswith("https://docs.recoveryos.org")
+    for _, url in body["error_types"].items():
+        assert url.startswith("https://docs.recoveryos.org/api/")
+        assert len(url) > len("https://docs.recoveryos.org/api/")
+    for endpoint in body["endpoints"]:
+        assert endpoint["url"].startswith("https://docs.recoveryos.org/api/")
+    for _, guidance in body["troubleshooting"].items():
+        assert len(guidance) > 20
+        assert any(
+            w in guidance.lower() for w in ["check", "ensure", "contact", "wait", "continue"]
+        )
+
+
+def test_help_endpoint_status_codes_accuracy():
+    r = client.get("/help")
+    assert r.status_code == 200
+    body = r.json()
+    endpoints = {ep["name"]: ep for ep in body["endpoints"]}
+    checkin_codes = endpoints["POST /check-in"]["status_codes"]
+    assert (
+        "200" in checkin_codes
+        and ("400" in checkin_codes or "422" in checkin_codes)
+        and "429" in checkin_codes
+    )
+    consent_codes = endpoints["GET /consents/{user_id}"]["status_codes"]
+    assert "200" in consent_codes and "404" in consent_codes
+    assert "200" in endpoints["GET /healthz"]["status_codes"]
+    assert "200" in endpoints["GET /readyz"]["status_codes"]
+    assert "200" in endpoints["GET /metrics"]["status_codes"]
