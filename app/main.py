@@ -17,6 +17,8 @@ from starlette.responses import Response as StarletteResponse
 
 APP_START_TS = time.time()
 
+MAX_ERROR_MESSAGE_LENGTH = 100
+
 
 def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
