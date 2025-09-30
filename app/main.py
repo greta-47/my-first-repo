@@ -145,19 +145,68 @@ class TroubleshootPayload(BaseModel):
     error_message: Optional[str] = Field(default=None, max_length=1000)
     user_context: Optional[str] = Field(default=None, max_length=500)
 
-
 class TroubleshootStep(BaseModel):
     step_number: int
     title: str
     description: str
     action: str
 
-
 class TroubleshootResponse(BaseModel):
     issue_type: str
     identified_issue: str
     steps: List[TroubleshootStep]
     additional_resources: List[str]
+
+class ErrorDetail(BaseModel):
+    type: str
+    title: str
+    detail: Optional[str] = None
+    code: str
+    help_url: Optional[str] = None
+
+class ErrorResponse(BaseModel):
+    status: Literal["error"] = "error"
+    error: ErrorDetail
+    meta: Optional[Dict[str, str]] = None
+
+class HelpEndpoint(BaseModel):
+    name: str
+    description: str
+    url: str
+    status_codes: List[str]
+
+class HelpResponse(BaseModel):
+    api_version: str
+    documentation_url: str
+    support_contact: str
+    endpoints: List[HelpEndpoint]
+    error_types: Dict[str, str]
+    troubleshooting: Dict[str, str]
+
+def create_error_response(
+    error_type: str,
+    title: str,
+    detail: Optional[str] = None,
+    code: str = "",
+    help_url: Optional[str] = None,
+    status_code: int = 400,
+) -> JSONResponse:
+    """Create a standardized error response following Problem Details format."""
+    error_detail = ErrorDetail(
+        type=f"https://recoveryos.org/errors/{error_type}",
+        title=title,
+        detail=detail,
+        code=code,
+        help_url=help_url or f"https://docs.recoveryos.org/api/{error_type}",
+    )
+    error_response = ErrorResponse(
+        error=error_detail,
+        meta={
+            "timestamp": iso_now(),
+            "request_id": "redacted",  # In production, this would be a real request ID
+        },
+    )
+    return JSONResponse(status_code=status_code, content=error_response.model_dump())
 
 
 def v0_score(checkins: List[CheckIn]) -> Tuple[int, str, str]:
@@ -427,9 +476,12 @@ async def rate_limit_middleware(
         key = get_rate_key(request)
         if not RATE_LIMIT.allow(key):
             logger.info("rate_limited")
-            return JSONResponse(
+            return create_error_response(
+                error_type="rate-limit",
+                title="Rate Limit Exceeded",
+                detail="Maximum 5 check-ins per 10 seconds allowed",
+                code="E_RATE_LIMITED",
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={"detail": "rate_limited"},
             )
     response = await call_next(request)
     return response
@@ -459,6 +511,90 @@ async def metrics() -> PlainTextResponse:
     return PlainTextResponse("\n".join(lines))
 
 
+@app.get("/help", response_model=HelpResponse)
+async def help_endpoint() -> HelpResponse:
+    """
+    Provides comprehensive API help, troubleshooting information, and documentation links.
+    """
+    endpoints = [
+        HelpEndpoint(
+            name="POST /check-in",
+            description="Submit mental health check-in data and receive risk scoring",
+            url="https://docs.recoveryos.org/api/check-in",
+            status_codes=["200", "400", "422", "429"],
+        ),
+        HelpEndpoint(
+            name="POST /consents",
+            description="Record user consent for data processing",
+            url="https://docs.recoveryos.org/api/consents",
+            status_codes=["200", "400"],
+        ),
+        HelpEndpoint(
+            name="GET /consents/{user_id}",
+            description="Retrieve consent record for a specific user",
+            url="https://docs.recoveryos.org/api/consents",
+            status_codes=["200", "404"],
+        ),
+        HelpEndpoint(
+            name="GET /healthz",
+            description="Health check endpoint for monitoring",
+            url="https://docs.recoveryos.org/api/health",
+            status_codes=["200"],
+        ),
+        HelpEndpoint(
+            name="GET /readyz",
+            description="Readiness check with system status",
+            url="https://docs.recoveryos.org/api/health",
+            status_codes=["200"],
+        ),
+        HelpEndpoint(
+            name="GET /metrics",
+            description="Prometheus-compatible metrics endpoint",
+            url="https://docs.recoveryos.org/api/metrics",
+            status_codes=["200"],
+        ),
+    ]
+
+    error_types = {
+        "validation": "https://docs.recoveryos.org/api/validation-errors",
+        "business-rule": "https://docs.recoveryos.org/api/business-logic-errors",
+        "rate-limit": "https://docs.recoveryos.org/api/rate-limiting",
+        "not-found": "https://docs.recoveryos.org/api/not-found-errors",
+        "authorization": "https://docs.recoveryos.org/api/authorization-errors",
+    }
+
+    troubleshooting = {
+        "rate_limited": (
+            "If you're hitting rate limits, wait 10 seconds between check-in requests. "
+            "Each client is limited to 5 requests per 10-second window."
+        ),
+        "insufficient_data": (
+            "Risk scoring requires at least 3 check-ins. "
+            "Continue submitting check-ins to receive meaningful risk assessment."
+        ),
+        "validation_failed": (
+            "Check that all required fields are present and within valid ranges. "
+            "See endpoint documentation for field specifications."
+        ),
+        "consent_not_found": (
+            "Ensure a consent record has been created before attempting to retrieve it."
+        ),
+        "high_risk_response": (
+            "High-risk responses include crisis messaging. "
+            "If you're in danger, contact emergency services immediately."
+        ),
+    }
+
+    return HelpResponse(
+        api_version="0.0.1",
+        documentation_url="https://docs.recoveryos.org/api",
+        support_contact="support@recoveryos.org",
+        endpoints=endpoints,
+        error_types=error_types,
+        troubleshooting=troubleshooting,
+    )
+
+
 @app.post("/consents", response_model=ConsentRecord)
 async def post_consents(payload: ConsentPayload) -> ConsentRecord:
     rec = ConsentRecord(
@@ -472,11 +608,17 @@ async def post_consents(payload: ConsentPayload) -> ConsentRecord:
     return rec
 
 
-@app.get("/consents/{user_id}", response_model=ConsentRecord | Dict[str, str])
+@app.get("/consents/{user_id}", response_model=ConsentRecord)
 async def get_consents(user_id: str):
     c = CONSENTS.get(user_id)
     if not c:
-        return {"detail": "not_found"}
+        return create_error_response(
+            error_type="not-found",
+            title="Consent Record Not Found",
+            detail="No consent record found for user ID",
+            code="E_CONSENT_NOT_FOUND",
+            status_code=404,
+        )
     return c
 
 
