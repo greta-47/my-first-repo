@@ -8,17 +8,36 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Deque, Dict, List, Literal, Optional, Tuple
+from typing import Awaitable, Callable, Deque, Dict, List, Literal, Optional, Tuple
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field, ValidationError
+from starlette.responses import Response as StarletteResponse
 
 APP_START_TS = time.time()
 
 
 def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# -----------------------------
+# Secure, PHI/PII-safe logging
+# -----------------------------
+
+# Optional (OFF by default): route exception stacks to Sentry WITHOUT leaking them into JSON logs.
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "false").lower() == "true"
+if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
+    try:
+        import sentry_sdk  # type: ignore[import-untyped]
+
+        # Keep lightweight: no performance tracing; error-only.
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)  # type: ignore
+    except Exception:
+        # Never let observability break the app.
+        pass
 
 
 class JsonFormatter(logging.Formatter):
@@ -36,8 +55,7 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": record.getMessage(),
         }
-        if record.exc_info:
-            payload["exc_info"] = self.formatException(record.exc_info)
+        # DO NOT serialize record.exc_info or "Traceback" text into structured logs.
         return json.dumps(payload, separators=(",", ":"))
 
 
@@ -47,7 +65,8 @@ _handler.setFormatter(JsonFormatter())
 logger.setLevel(logging.INFO)
 logger.handlers = [_handler]
 
-SENTRY_DSN = os.getenv("SENTRY_DSN") or ""
+# Note: we intentionally do NOT touch Uvicorn access logs here;
+# ensure deployment config avoids IP/UA in sinks.
 
 
 @dataclass
@@ -171,7 +190,10 @@ app = FastAPI(
 
 
 @app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
+async def rate_limit_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[StarletteResponse]],
+) -> StarletteResponse:
     # Rate limit ONLY POST /check-in
     if request.method.upper() == "POST" and request.url.path == "/check-in":
         key = get_rate_key(request)
