@@ -29,7 +29,7 @@ jobs:
           pip-compile --generate-hashes --output-file=requirements.temp.lock requirements.txt
       - name: Diff lockfile
         run: |
-          diff -u requirements.lock.txt requirements.temp.lock && echo "Lockfile fresh ✅"
+          diff -I '^#' -u requirements.lock.txt requirements.temp.lock && echo "Lockfile fresh ✅"
   ruff:
     name: Lint (ruff) + format check
     runs-on: ubuntu-latest
