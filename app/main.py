@@ -17,6 +17,8 @@ from starlette.responses import Response as StarletteResponse
 
 APP_START_TS = time.time()
 
+MAX_ERROR_MESSAGE_LENGTH = 100
+
 
 def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -143,8 +145,6 @@ class CheckInResponse(BaseModel):
 class TroubleshootingRequest(BaseModel):
     issue_type: Literal["login", "connection", "data", "performance", "general"] = "general"
     error_message: Optional[str] = None
-    user_agent: Optional[str] = None
-    additional_context: Optional[str] = None
 
 
 class TroubleshootingStep(BaseModel):
@@ -283,8 +283,8 @@ def generate_troubleshooting_steps(request: TroubleshootingRequest) -> Troublesh
 
     # Add context-specific step if error message provided
     if request.error_message:
-        error_msg = request.error_message[:100]
-        if len(request.error_message) > 100:
+        error_msg = request.error_message[:MAX_ERROR_MESSAGE_LENGTH]
+        if len(request.error_message) > MAX_ERROR_MESSAGE_LENGTH:
             error_msg += "..."
         context_step = TroubleshootingStep(
             step=len(steps) + 1,
@@ -419,7 +419,10 @@ async def troubleshoot(request: TroubleshootingRequest) -> TroubleshootingRespon
     Provide structured troubleshooting steps based on the type of issue reported.
     Helps users systematically resolve common problems.
     """
-    logger.info("troubleshooting_request", extra={"issue_type": request.issue_type})
+    logger.info(
+        "troubleshooting_request %s",
+        json.dumps({"user": "redacted", "issue_type": request.issue_type}, separators=(",", ":")),
+    )
     response = generate_troubleshooting_steps(request)
     return response
 
