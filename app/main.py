@@ -145,17 +145,20 @@ class TroubleshootPayload(BaseModel):
     error_message: Optional[str] = Field(default=None, max_length=1000)
     user_context: Optional[str] = Field(default=None, max_length=500)
 
+
 class TroubleshootStep(BaseModel):
     step_number: int
     title: str
     description: str
     action: str
 
+
 class TroubleshootResponse(BaseModel):
     issue_type: str
     identified_issue: str
     steps: List[TroubleshootStep]
     additional_resources: List[str]
+
 
 class ErrorDetail(BaseModel):
     type: str
@@ -164,16 +167,19 @@ class ErrorDetail(BaseModel):
     code: str
     help_url: Optional[str] = None
 
+
 class ErrorResponse(BaseModel):
     status: Literal["error"] = "error"
     error: ErrorDetail
     meta: Optional[Dict[str, str]] = None
+
 
 class HelpEndpoint(BaseModel):
     name: str
     description: str
     url: str
     status_codes: List[str]
+
 
 class HelpResponse(BaseModel):
     api_version: str
@@ -182,6 +188,7 @@ class HelpResponse(BaseModel):
     endpoints: List[HelpEndpoint]
     error_types: Dict[str, str]
     troubleshooting: Dict[str, str]
+
 
 def create_error_response(
     error_type: str,
@@ -203,10 +210,12 @@ def create_error_response(
         error=error_detail,
         meta={
             "timestamp": iso_now(),
-            "request_id": "redacted",  # In production, this would be a real request ID
+            "request_id": "redacted",
         },
     )
-    return JSONResponse(status_code=status_code, content=error_response.model_dump())
+    content = error_response.model_dump()
+    content["help_url"] = error_detail.help_url
+    return JSONResponse(status_code=status_code, content=content)
 
 
 def v0_score(checkins: List[CheckIn]) -> Tuple[int, str, str]:
