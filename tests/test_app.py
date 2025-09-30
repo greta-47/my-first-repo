@@ -79,10 +79,7 @@ def test_consents_roundtrip():
 
 def test_troubleshoot_general_issue():
     """Test troubleshooting endpoint with general issue type."""
-    r = client.post(
-        "/troubleshoot",
-        json={"issue_type": "general"}
-    )
+    r = client.post("/troubleshoot", json={"issue_type": "general"})
     assert r.status_code == 200
     body = r.json()
     assert body["issue_type"] == "general"
@@ -94,10 +91,7 @@ def test_troubleshoot_general_issue():
 
 def test_troubleshoot_login_issue():
     """Test troubleshooting endpoint with login issue type."""
-    r = client.post(
-        "/troubleshoot",
-        json={"issue_type": "login"}
-    )
+    r = client.post("/troubleshoot", json={"issue_type": "login"})
     assert r.status_code == 200
     body = r.json()
     assert body["issue_type"] == "login"
@@ -110,18 +104,15 @@ def test_troubleshoot_with_error_message():
     """Test troubleshooting endpoint with error message context."""
     r = client.post(
         "/troubleshoot",
-        json={
-            "issue_type": "connection",
-            "error_message": "Connection timeout after 30 seconds"
-        }
+        json={"issue_type": "connection", "error_message": "Connection timeout after 30 seconds"},
     )
     assert r.status_code == 200
     body = r.json()
     assert body["issue_type"] == "connection"
-    
+
     # Should have original connection steps plus context-specific step
     assert len(body["steps"]) == 4  # 3 connection steps + 1 context step
-    
+
     # Last step should reference the error message
     last_step = body["steps"][-1]
     assert "Connection timeout" in last_step["description"]
@@ -129,10 +120,7 @@ def test_troubleshoot_with_error_message():
 
 def test_troubleshoot_data_issue():
     """Test troubleshooting endpoint with data issue type."""
-    r = client.post(
-        "/troubleshoot",
-        json={"issue_type": "data"}
-    )
+    r = client.post("/troubleshoot", json={"issue_type": "data"})
     assert r.status_code == 200
     body = r.json()
     assert body["issue_type"] == "data"
@@ -142,10 +130,7 @@ def test_troubleshoot_data_issue():
 
 def test_troubleshoot_performance_issue():
     """Test troubleshooting endpoint with performance issue type."""
-    r = client.post(
-        "/troubleshoot",
-        json={"issue_type": "performance"}
-    )
+    r = client.post("/troubleshoot", json={"issue_type": "performance"})
     assert r.status_code == 200
     body = r.json()
     assert body["issue_type"] == "performance"
@@ -160,17 +145,11 @@ def test_troubleshoot_with_long_error_message():
         "truncated by the system to prevent overly verbose descriptions from cluttering the "
         "response"
     )
-    
-    r = client.post(
-        "/troubleshoot",
-        json={
-            "issue_type": "general",
-            "error_message": long_error
-        }
-    )
+
+    r = client.post("/troubleshoot", json={"issue_type": "general", "error_message": long_error})
     assert r.status_code == 200
     body = r.json()
-    
+
     # Should have general steps plus context step
     context_step = body["steps"][-1]
     assert "..." in context_step["description"]
