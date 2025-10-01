@@ -1,0 +1,9 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Tests (pytest)", "type": "shell", "command": ". .venv/bin/activate && pytest -q" },
+    { "label": "Lint (ruff) + Fix", "type": "shell", "command": ". .venv/bin/activate && ruff format . && ruff check --fix ." },
+    { "label": "Type check (mypy)", "type": "shell", "command": ". .venv/bin/activate && mypy ." },
+    { "label": "Security (pip-audit)", "type": "shell", "command": ". .venv/bin/activate && pip-audit" }
+  ]
+}
