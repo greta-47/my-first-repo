@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Uvicorn: app.main:app (reload)",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.main:app", "--reload", "--host", "127.0.0.1", "--port", "8000"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Pytest: Debug all tests",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q"],
+      "console": "integratedTerminal"
+    }
+  ]
+}
