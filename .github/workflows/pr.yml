@@ -1,1 +1,75 @@
-# (paste the pinned workflow I provided earlier)
+name: PR CI (informational scans + lockfile preflight)
+
+on:
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Lockfile Freshness (Linux, py3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Pin pip/pip-tools
+        run: |
+          python -m pip install -U pip==24.2 pip-tools==7.4.1
+      - name: Rebuild lockfile (temp)
+        run: |
+          pip-compile --generate-hashes --output-file=requirements.temp.lock requirements.txt
+      - name: Diff lockfile
+        run: |
+          diff -I '^#' -u requirements.lock.txt requirements.temp.lock && echo "Lockfile fresh ✅"
+  ruff:
+    name: Lint (ruff) + format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: |
+          python -m pip install -U pip==24.2
+          pip install ruff==0.13.2 pytest
+          python -m ruff format --check .
+          python -m ruff check .
+  scans:
+    name: Trivy (non-blocking)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: fs
+          format: sarif
+          output: trivy-results.sarif
+      - name: Check SARIF exists
+        id: sarif
+        run: |
+          if [ -f trivy-results.sarif ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload SARIF if present
+        if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && steps.sarif.outputs.exists == 'true' }}
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: trivy-results.sarif
