@@ -13,30 +13,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  preflight-lock:
-    name: Preflight · lockfile freshness (blocking)
+  preflight:
+    name: Lockfile Freshness (Linux, py3.12)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-      - name: Pin pip & pip-tools
+      - name: Pin pip/pip-tools
         run: |
-          python -m pip install --upgrade --force-reinstall 'pip==24.2'
-          python -m pip --version
-          python -m pip install 'pip-tools==7.4.1'
-          pip-compile --version
-      - name: Compile temp lock
+          python -m pip install -U pip==24.2 pip-tools==7.4.1
+      - name: Rebuild lockfile (temp)
         run: |
-          pip-compile --quiet --generate-hashes -o temp.lock requirements.txt
-      - name: Diff lockfile (ignore comments)
+          pip-compile --generate-hashes --output-file=requirements.temp.lock requirements.txt
+      - name: Diff lockfile
         run: |
-          if ! git ls-files --error-unmatch requirements.lock.txt >/dev/null 2>&1; then
-            echo "requirements.lock.txt missing"; exit 1
-          fi
-          diff -I '^#' -u requirements.lock.txt temp.lock
+          diff -I '^#' -u requirements.lock.txt requirements.temp.lock && echo "Lockfile fresh ✅"
   ruff:
     name: Lint (ruff) + format check
     runs-on: ubuntu-latest
@@ -47,9 +40,8 @@ jobs:
           python-version: "3.12"
           cache: "pip"
       - run: |
-          python -m pip install --upgrade --force-reinstall 'pip==24.2'
-          python -m pip --version
-          python -m pip install 'ruff==0.13.2'
+          python -m pip install -U pip==24.2
+          pip install ruff==0.13.2 pytest
           python -m ruff format --check .
           python -m ruff check .
   scans:
