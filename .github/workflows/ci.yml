@@ -3,7 +3,7 @@ name: CI (py312)
 on:
   pull_request:
   push:
-    branches: [ feat/**, fix/**, chore/**, docs/** ]
+    branches: [ "**" ]  # or keep your feat/**, fix/**, etc.
 
 jobs:
   lint-test:

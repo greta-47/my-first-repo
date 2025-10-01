@@ -68,7 +68,7 @@ logger.setLevel(logging.INFO)
 logger.handlers = [_handler]
 
 # Note: we intentionally do NOT touch Uvicorn access logs here;
-# ensure deployment config avoids IP/UA in sinks.
+# Ensure deployment config avoids IP/UA in sinks.
 
 
 @dataclass
@@ -694,7 +694,7 @@ async def troubleshoot(payload: TroubleshootPayload) -> TroubleshootResponse:
         return response
 
     except Exception as e:
-        # Enhanced logging for debugging unexpected behaviors
+        # Enhanced logging for debugging unexpected behaviors (no user content logged)
         logger.error(
             "troubleshoot_error %s",
             json.dumps(
