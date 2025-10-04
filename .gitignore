@@ -8,6 +8,14 @@ __pycache__/
 build/
 dist/
 
+# Environment variables (SECURITY: Never commit secrets!)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+
 # macOS
 .DS_Store
 
