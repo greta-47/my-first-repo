@@ -61,14 +61,14 @@ COPY --chown=appuser:appuser . /app
 RUN echo '#!/usr/bin/env sh' > /app/entrypoint.sh && \
     echo 'set -euo pipefail' >> /app/entrypoint.sh && \
     echo 'if [ -x /app/prestart.sh ]; then /app/prestart.sh; fi' >> /app/entrypoint.sh && \
-    echo 'exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT} --workers ${WORKERS}' >> /app/entrypoint.sh && \
+    echo 'exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${WORKERS}' >> /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
 USER appuser
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
+  CMD curl -fsS "http://127.0.0.1:${PORT}/healthz" || exit 1
 
 LABEL org.opencontainers.image.title="my-first-repo API" \
       org.opencontainers.image.description="A simple FastAPI application for RecoveryOS" \

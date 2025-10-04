@@ -3,7 +3,7 @@
 ## API Conventions
 
 ### Base Standards
-- **Base path**: `/v1` for all endpoints
+- **Base path**: Root level (no versioning prefix currently)
 - **JSON format**: `snake_case` for all field names
 - **Content type**: `application/json` only
 - **HTTP methods**: Standard REST semantics (GET, POST, PUT, PATCH, DELETE)
@@ -17,8 +17,9 @@ Idempotency-Key: unique-operation-key-123
 ```
 
 ### Versioning Strategy
-- **Path-based versioning**: `/v1/`, `/v2/` for breaking changes
-- **Backward compatibility**: Maintain v1 for 12+ months after v2 release
+- **Current**: No versioning prefix (MVP implementation)
+- **Future**: Path-based versioning `/v1/`, `/v2/` for breaking changes
+- **Backward compatibility**: Will maintain previous version for 12+ months
 - **Deprecation headers**: `Sunset` header with end-of-life date
 
 ## Response Envelope Standards
@@ -122,6 +123,23 @@ X-RateLimit-Reset: 1695812400
 ```
 
 ## Core API Endpoints
+
+### Currently Implemented (MVP)
+
+The following endpoints are implemented and available:
+
+- `POST /check-in` - Submit check-in data for risk scoring
+- `POST /consents` - Record user consent
+- `GET /consents/{user_id}` - Retrieve consent record
+- `GET /healthz` - Health check endpoint  
+- `GET /readyz` - Readiness check endpoint
+- `GET /metrics` - Prometheus metrics endpoint
+- `GET /help` - API help and troubleshooting
+- `POST /troubleshoot` - Get troubleshooting guidance
+
+### Future Planned Endpoints
+
+The following endpoints are documented for future implementation:
 
 ### Check-ins
 ```http
