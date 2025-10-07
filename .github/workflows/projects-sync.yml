@@ -1,38 +1,35 @@
-name: Sync Issues/PRs to Project V2
+name: Projects V2 Sync
 
 on:
   issues:
     types: [opened, edited, labeled, unlabeled]
-  pull_request:
+  pull_request_target:             # secrets work for PRs (including forks)
     types: [opened, edited, labeled, unlabeled, ready_for_review]
   workflow_dispatch:
 
+concurrency:
+  group: projects-sync-${{ github.event_name }}-${{ github.event.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   sync-to-project:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
-      PROJECT_OWNER: "greta-47"
-      PROJECT_NUMBER: "1"
+      GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}   # PAT classic with `project` scope
+      PROJECT_ID: ${{ secrets.PROJECT_ID }}     # PVT_... (preferred path)
+      PROJECT_OWNER: "greta-47"                 # fallback if PROJECT_ID missing
+      PROJECT_NUMBER: "1"                       # fallback if PROJECT_ID missing
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install requests
-
+      - run: |
+          python -m pip install -U pip requests
       - name: Sync to Project V2
-        run: |
-          python scripts/projects_sync.py
+        run: python scripts/projects_sync.py
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-          ISSUE_URL: ${{ github.event.issue.html_url || github.event.pull_request.html_url }}
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
+          ISSUE_URL:    ${{ github.event.issue.html_url || github.event.pull_request.html_url }}
+          REPO_OWNER:   ${{ github.repository_owner }}
+          REPO_NAME:    ${{ github.event.repository.name }}
