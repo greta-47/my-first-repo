@@ -3,10 +3,10 @@
 Sync issues and pull requests to GitHub Project V2.
 
 This script:
-1. Resolves the Project ID from owner+number via GraphQL
+1. Resolves the Project ID (prefers env PROJECT_ID; falls back to owner+number via GraphQL)
 2. Finds field IDs for Priority and Stage using inline fragments
 3. Upserts the current Issue/PR into the Project
-4. Sets default values: Priority=P2 (Normal), Stage=Later (if unset)
+4. Sets default values: Priority=P2 (Normal), Stage=Later (only if unset)
 5. Idempotent and logs only IDs/URLs (no sensitive data)
 """
 
@@ -16,9 +16,49 @@ import sys
 from typing import Any
 
 import requests
+
+
+# -----------------------------
+# Helpers
+# -----------------------------
+def graphql_request(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Execute a GraphQL request against the GitHub API."""
+    token = os.environ.get("GH_TOKEN")
+    if not token:
+        print("ERROR: GH_TOKEN environment variable not set", file=sys.stderr)
+        sys.exit(1)
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    payload: dict[str, Any] = {"query": query}
+    if variables:
+        payload["variables"] = variables
+
+    resp = requests.post(
+        "https://api.github.com/graphql",
+        headers=headers,
+        json=payload,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    if "errors" in data and data["errors"]:
+        # Print diagnostics but keep it minimal (no secrets)
+        print("GraphQL errors:", file=sys.stderr)
+        print(json.dumps(data["errors"], indent=2), file=sys.stderr)
+        sys.exit(1)
+
+    return data
+
+
 def get_project_id() -> str:
     """
-    Prefer PROJECT_ID from env; otherwise resolve from owner+number.
+    Prefer PROJECT_ID from env; otherwise resolve from owner+number (user project).
+    Requires env: PROJECT_OWNER, PROJECT_NUMBER when PROJECT_ID is absent.
     """
     pid = os.environ.get("PROJECT_ID")
     if pid:
@@ -33,75 +73,21 @@ def get_project_id() -> str:
         projectV2(number:$number){ id title }
       }
     }"""
-    resp = graphql_request(q, {"login": owner, "number": number})
+    data = graphql_request(q, {"login": owner, "number": number})
     try:
-        return resp["data"]["user"]["projectV2"]["id"]
-    except Exception as e:
+        proj = data["data"]["user"]["projectV2"]
+        project_id = proj["id"]
+        title = proj.get("title", "<untitled>")
+        print(f"✓ Resolved project: {title} (ID: {project_id})")
+        return project_id
+    except Exception as e:  # noqa: BLE001
         print(f"ERROR: could not resolve Project ID for {owner} #{number}: {e}", file=sys.stderr)
-        print(json.dumps(resp, indent=2), file=sys.stderr)
+        print(json.dumps(data, indent=2), file=sys.stderr)
         sys.exit(1)
-
-
-def graphql_request(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Execute a GraphQL request against GitHub API."""
-    token = os.environ.get("GH_TOKEN")
-    if not token:
-        print("ERROR: GH_TOKEN environment variable not set", file=sys.stderr)
-        sys.exit(1)
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {"query": query}
-    if variables:
-        payload["variables"] = variables
-
-    response = requests.post(
-        "https://api.github.com/graphql",
-        headers=headers,
-        json=payload,
-        timeout=30,
-    )
-    response.raise_for_status()
-    data = response.json()
-
-    if "errors" in data:
-        print(f"GraphQL errors: {json.dumps(data['errors'], indent=2)}", file=sys.stderr)
-        sys.exit(1)
-
-    return data
-
-
-def get_project_id(owner: str, number: str) -> str:
-    """Get the Project V2 ID from owner and project number."""
-    query = """
-    query($owner: String!, $number: Int!) {
-      user(login: $owner) {
-        projectV2(number: $number) {
-          id
-          title
-        }
-      }
-    }
-    """
-
-    data = graphql_request(query, {"owner": owner, "number": int(number)})
-
-    project = data.get("data", {}).get("user", {}).get("projectV2")
-    if not project:
-        print(f"ERROR: Could not find project #{number} for user {owner}", file=sys.stderr)
-        sys.exit(1)
-
-    project_id = project["id"]
-    project_title = project["title"]
-    print(f"✓ Found project: {project_title} (ID: {project_id})")
-    return project_id
 
 
 def get_project_fields(project_id: str) -> dict[str, Any]:
-    """Get field IDs and options for Priority and Stage fields."""
+    """Fetch field configs (Priority, Stage) with inline fragments to avoid union selection errors."""
     query = """
     query($projectId: ID!) {
       node(id: $projectId) {
@@ -109,120 +95,109 @@ def get_project_fields(project_id: str) -> dict[str, Any]:
           fields(first: 50) {
             nodes {
               __typename
-              ... on ProjectV2Field {
+              # Common name/id on all field types
+              ... on ProjectV2FieldCommon {
                 id
                 name
               }
+              # Single-select fields expose options
               ... on ProjectV2SingleSelectField {
                 id
                 name
-                options {
-                  id
-                  name
-                }
+                options { id name }
               }
-              ... on ProjectV2IterationField {
-                id
-                name
-              }
+              # Include other concrete types to satisfy the union (even if unused)
+              ... on ProjectV2IterationField { id name }
+              ... on ProjectV2DateField { id name }
+              ... on ProjectV2TextField { id name }
+              ... on ProjectV2NumberField { id name }
+              ... on ProjectV2RepositoryField { id name }
+              ... on ProjectV2TitleField { id name }
+              ... on ProjectV2AssigneesField { id name }
+              ... on ProjectV2LabelsField { id name }
+              ... on ProjectV2MilestoneField { id name }
+              ... on ProjectV2TrackedByField { id name }
+              ... on ProjectV2LinkedPullRequestsField { id name }
             }
           }
         }
       }
     }
     """
-
     data = graphql_request(query, {"projectId": project_id})
-    fields = data.get("data", {}).get("node", {}).get("fields", {}).get("nodes", [])
+    fields = data.get("data", {}).get("node", {}).get("fields", {}).get("nodes", []) or []
 
-    priority_field = None
-    stage_field = None
+    priority_field: dict[str, Any] | None = None
+    stage_field: dict[str, Any] | None = None
 
-    for field in fields:
-        if (
-            field.get("name") == "Priority"
-            and field.get("__typename") == "ProjectV2SingleSelectField"
-        ):
-            priority_field = field
-        elif (
-            field.get("name") == "Stage" and field.get("__typename") == "ProjectV2SingleSelectField"
-        ):
-            stage_field = field
+    for f in fields:
+        name = f.get("name")
+        typ = f.get("__typename")
+        if name == "Priority" and typ == "ProjectV2SingleSelectField":
+            priority_field = f
+        elif name == "Stage" and typ == "ProjectV2SingleSelectField":
+            stage_field = f
 
     if not priority_field:
-        print("ERROR: Could not find Priority field in project", file=sys.stderr)
+        print("ERROR: Could not find 'Priority' single-select field in project", file=sys.stderr)
         sys.exit(1)
-
     if not stage_field:
-        print("ERROR: Could not find Stage field in project", file=sys.stderr)
+        print("ERROR: Could not find 'Stage' single-select field in project", file=sys.stderr)
         sys.exit(1)
 
     print(f"✓ Found Priority field (ID: {priority_field['id']})")
     print(f"✓ Found Stage field (ID: {stage_field['id']})")
 
-    return {
-        "priority": priority_field,
-        "stage": stage_field,
-    }
+    return {"priority": priority_field, "stage": stage_field}
 
 
 def get_item_node_id(repo_owner: str, repo_name: str, issue_number: str) -> str:
-    """Get the node ID for an issue or pull request."""
+    """Return the node ID for an issue or pull request by number."""
     query = """
     query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) {
         issueOrPullRequest(number: $number) {
-          ... on Issue {
-            id
-          }
-          ... on PullRequest {
-            id
-          }
+          ... on Issue { id }
+          ... on PullRequest { id }
         }
       }
     }
     """
-
-    data = graphql_request(
-        query,
-        {"owner": repo_owner, "name": repo_name, "number": int(issue_number)},
-    )
-
-    item = data.get("data", {}).get("repository", {}).get("issueOrPullRequest")
-    if not item or "id" not in item:
+    data = graphql_request(query, {"owner": repo_owner, "name": repo_name, "number": int(issue_number)})
+    node = data.get("data", {}).get("repository", {}).get("issueOrPullRequest")
+    if not node or "id" not in node:
         print(f"ERROR: Could not find issue/PR #{issue_number}", file=sys.stderr)
         sys.exit(1)
-
-    node_id = item["id"]
-    print(f"✓ Found issue/PR #{issue_number} (ID: {node_id})")
-    return node_id
+    nid = node["id"]
+    print(f"✓ Found issue/PR #{issue_number} (ID: {nid})")
+    return nid
 
 
 def add_item_to_project(project_id: str, content_id: str) -> str:
-    """Add an issue/PR to the project. Returns the project item ID."""
+    """Add an issue/PR to the project and return the project item ID."""
     query = """
     mutation($projectId: ID!, $contentId: ID!) {
-      addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-        item {
-          id
-        }
+      addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+        item { id }
       }
     }
     """
-
     data = graphql_request(query, {"projectId": project_id, "contentId": content_id})
-    item_id = data.get("data", {}).get("addProjectV2ItemById", {}).get("item", {}).get("id")
-
+    item_id = (
+        data.get("data", {})
+        .get("addProjectV2ItemById", {})
+        .get("item", {})
+        .get("id")
+    )
     if not item_id:
         print("ERROR: Failed to add item to project", file=sys.stderr)
         sys.exit(1)
-
     print(f"✓ Added item to project (Item ID: {item_id})")
     return item_id
 
 
-def get_project_item_fields(project_id: str, item_id: str) -> dict[str, Any]:
-    """Get current field values for a project item."""
+def get_project_item_fields(project_id: str, item_id: str) -> list[dict[str, Any]]:
+    """Return current single-select field values for a project item."""
     query = """
     query($projectId: ID!, $itemId: ID!) {
       node(id: $projectId) {
@@ -231,12 +206,11 @@ def get_project_item_fields(project_id: str, item_id: str) -> dict[str, Any]:
             id
             fieldValues(first: 50) {
               nodes {
+                __typename
                 ... on ProjectV2ItemFieldSingleSelectValue {
                   field {
-                    ... on ProjectV2SingleSelectField {
-                      id
-                      name
-                    }
+                    __typename
+                    ... on ProjectV2SingleSelectField { id name }
                   }
                   optionId
                   name
@@ -248,16 +222,9 @@ def get_project_item_fields(project_id: str, item_id: str) -> dict[str, Any]:
       }
     }
     """
-
-    try:
-        data = graphql_request(query, {"projectId": project_id, "itemId": item_id})
-        item = data.get("data", {}).get("node", {}).get("item")
-        if item:
-            return item.get("fieldValues", {}).get("nodes", [])
-    except Exception:
-        pass
-
-    return []
+    data = graphql_request(query, {"projectId": project_id, "itemId": item_id})
+    item = data.get("data", {}).get("node", {}).get("item")
+    return (item or {}).get("fieldValues", {}).get("nodes", []) if item else []
 
 
 def set_field_value(project_id: str, item_id: str, field_id: str, option_id: str) -> None:
@@ -272,63 +239,52 @@ def set_field_value(project_id: str, item_id: str, field_id: str, option_id: str
           value: $value
         }
       ) {
-        projectV2Item {
-          id
-        }
+        projectV2Item { id }
       }
     }
     """
-
     variables = {
         "projectId": project_id,
         "itemId": item_id,
         "fieldId": field_id,
         "value": {"singleSelectOptionId": option_id},
     }
-
     graphql_request(query, variables)
 
 
+# -----------------------------
+# Main
+# -----------------------------
 def main() -> None:
-    """Main entry point."""
-    project_owner = os.environ.get("PROJECT_OWNER")
-    project_number = os.environ.get("PROJECT_NUMBER")
+    """Entry point."""
     repo_owner = os.environ.get("REPO_OWNER")
     repo_name = os.environ.get("REPO_NAME")
     issue_number = os.environ.get("ISSUE_NUMBER")
-    issue_url = os.environ.get("ISSUE_URL")
+    issue_url = os.environ.get("ISSUE_URL")  # optional
 
-    if not all([project_owner, project_number, repo_owner, repo_name, issue_number]):
-        print("ERROR: Missing required environment variables", file=sys.stderr)
-        print(
-            "Required: PROJECT_OWNER, PROJECT_NUMBER, REPO_OWNER, REPO_NAME, ISSUE_NUMBER",
-            file=sys.stderr,
-        )
+    required = [repo_owner, repo_name, issue_number]
+    if not all(required):
+        print("ERROR: Missing required env vars REPO_OWNER, REPO_NAME, ISSUE_NUMBER", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Syncing issue/PR #{issue_number} to project {project_owner}/{project_number}")
-    print(f"URL: {issue_url}")
+    print(f"Syncing issue/PR #{issue_number} from {repo_owner}/{repo_name}")
+    if issue_url:
+        print(f"URL: {issue_url}")
     print()
 
-    project_id = get_project_id(project_owner, project_number)
+    # Resolve project, fields, and default options
+    project_id = get_project_id()
     fields = get_project_fields(project_id)
 
     priority_field = fields["priority"]
     stage_field = fields["stage"]
 
-    p2_option = next(
-        (opt for opt in priority_field["options"] if opt["name"] == "P2 (Normal)"),
-        None,
-    )
-    later_option = next(
-        (opt for opt in stage_field["options"] if opt["name"] == "Later"),
-        None,
-    )
+    p2_option = next((o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"), None)
+    later_option = next((o for o in stage_field.get("options", []) if o["name"] == "Later"), None)
 
     if not p2_option:
         print("ERROR: Could not find 'P2 (Normal)' option in Priority field", file=sys.stderr)
         sys.exit(1)
-
     if not later_option:
         print("ERROR: Could not find 'Later' option in Stage field", file=sys.stderr)
         sys.exit(1)
@@ -337,38 +293,30 @@ def main() -> None:
     print(f"✓ Found Later option (ID: {later_option['id']})")
     print()
 
+    # Upsert item into project
     content_id = get_item_node_id(repo_owner, repo_name, issue_number)
+    item_id = add_item_to_project(project_id, content_id)
 
-    try:
-        item_id = add_item_to_project(project_id, content_id)
-    except Exception as e:
-        if "already exists" in str(e).lower():
-            print("Item already in project, skipping add")
-            print()
-        else:
-            raise
-
+    # Only set defaults if unset
     current_values = get_project_item_fields(project_id, item_id)
-
-    priority_set = any(val.get("field", {}).get("name") == "Priority" for val in current_values)
-    stage_set = any(val.get("field", {}).get("name") == "Stage" for val in current_values)
+    priority_set = any((v.get("field") or {}).get("name") == "Priority" for v in current_values)
+    stage_set = any((v.get("field") or {}).get("name") == "Stage" for v in current_values)
 
     if not priority_set:
-        print("Setting Priority to P2 (Normal)...")
+        print("Setting Priority to P2 (Normal)…")
         set_field_value(project_id, item_id, priority_field["id"], p2_option["id"])
         print("✓ Priority set")
     else:
         print("✓ Priority already set, skipping")
 
     if not stage_set:
-        print("Setting Stage to Later...")
+        print("Setting Stage to Later…")
         set_field_value(project_id, item_id, stage_field["id"], later_option["id"])
         print("✓ Stage set")
     else:
         print("✓ Stage already set, skipping")
 
-    print()
-    print("✅ Sync complete!")
+    print("\n✅ Sync complete!")
 
 
 if __name__ == "__main__":
