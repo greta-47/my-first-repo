@@ -16,6 +16,30 @@ import sys
 from typing import Any
 
 import requests
+def get_project_id() -> str:
+    """
+    Prefer PROJECT_ID from env; otherwise resolve from owner+number.
+    """
+    pid = os.environ.get("PROJECT_ID")
+    if pid:
+        return pid
+
+    owner = os.environ["PROJECT_OWNER"]
+    number = int(os.environ.get("PROJECT_NUMBER", "1"))
+
+    q = """
+    query($login:String!, $number:Int!){
+      user(login:$login){
+        projectV2(number:$number){ id title }
+      }
+    }"""
+    resp = graphql_request(q, {"login": owner, "number": number})
+    try:
+        return resp["data"]["user"]["projectV2"]["id"]
+    except Exception as e:
+        print(f"ERROR: could not resolve Project ID for {owner} #{number}: {e}", file=sys.stderr)
+        print(json.dumps(resp, indent=2), file=sys.stderr)
+        sys.exit(1)
 
 
 def graphql_request(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
