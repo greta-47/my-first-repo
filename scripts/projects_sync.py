@@ -15,7 +15,7 @@ import os
 import sys
 from typing import Any
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 
 # -----------------------------
