@@ -1,5 +1,4 @@
 name: Auto-add PRs to Project
-# CI: guarded to skip when PROJECT_ID/PROJECTS_TOKEN are missing or invalid
 
 on:
   pull_request_target:
@@ -9,43 +8,13 @@ permissions: {}
 
 jobs:
   add:
-    if: ${{ github.repository_owner == 'greta-47' && secrets.PROJECT_ID != '' && secrets.PROJECTS_TOKEN != '' }}
+    if: github.repository_owner == 'greta-47'
     runs-on: ubuntu-latest
     env:
       PROJECT_ID: ${{ secrets.PROJECT_ID }}  # PVT_... id from your Projects V2 board
 
     steps:
-      - name: Check secrets
-        id: guard
-        run: |
-          if [ -z "${{ secrets.PROJECT_ID }}" ] || [ -z "${{ secrets.PROJECTS_TOKEN }}" ]; then
-            echo "Secrets missing; skipping automation."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Validate token
-        id: validate
-        env:
-          TOKEN: ${{ secrets.PROJECTS_TOKEN }}
-        run: |
-          if [ "${{ steps.guard.outputs.skip }}" = "true" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          code=$(curl -s -o /dev/null -w '%{http_code}' \
-            -H "Authorization: bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"query":"query{viewer{login}}"}' https://api.github.com/graphql)
-          if [ "$code" != "200" ]; then
-            echo "Token invalid (HTTP $code); skipping automation."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Add PR to Project V2 + set fields
-        if: steps.guard.outputs.skip != 'true' && steps.validate.outputs.skip != 'true'
         id: add
         uses: actions/github-script@v7
         with:
@@ -168,7 +137,7 @@ jobs:
             core.setOutput("itemId", itemId);
 
       - name: Comment on PR (confirmation)
-        if: success() && steps.guard.outputs.skip != 'true' && steps.validate.outputs.skip != 'true'
+        if: success()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.PROJECTS_TOKEN }}
