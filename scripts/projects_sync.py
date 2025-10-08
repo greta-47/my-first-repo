@@ -87,7 +87,8 @@ def get_project_id() -> str:
 
 
 def get_project_fields(project_id: str) -> dict[str, Any]:
-    """Fetch field configs (Priority, Stage) with inline fragments to avoid union selection errors."""
+    """Fetch field configs (Priority, Stage) using inline fragments.
+    This avoids union selection errors on ProjectV2 field types."""
     query = """
     query($projectId: ID!) {
       node(id: $projectId) {
@@ -163,7 +164,10 @@ def get_item_node_id(repo_owner: str, repo_name: str, issue_number: str) -> str:
       }
     }
     """
-    data = graphql_request(query, {"owner": repo_owner, "name": repo_name, "number": int(issue_number)})
+    data = graphql_request(
+        query,
+        {"owner": repo_owner, "name": repo_name, "number": int(issue_number)},
+    )
     node = data.get("data", {}).get("repository", {}).get("issueOrPullRequest")
     if not node or "id" not in node:
         print(f"ERROR: Could not find issue/PR #{issue_number}", file=sys.stderr)
@@ -264,8 +268,14 @@ def main() -> None:
 
     required = [repo_owner, repo_name, issue_number]
     if not all(required):
-        print("ERROR: Missing required env vars REPO_OWNER, REPO_NAME, ISSUE_NUMBER", file=sys.stderr)
+        print(
+            "ERROR: Missing required env vars REPO_OWNER, REPO_NAME, ISSUE_NUMBER",
+            file=sys.stderr,
+        )
         sys.exit(1)
+    repo_owner = repo_owner or ""
+    repo_name = repo_name or ""
+    issue_number = issue_number or ""
 
     print(f"Syncing issue/PR #{issue_number} from {repo_owner}/{repo_name}")
     if issue_url:
@@ -279,7 +289,10 @@ def main() -> None:
     priority_field = fields["priority"]
     stage_field = fields["stage"]
 
-    p2_option = next((o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"), None)
+    p2_option = next(
+        (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"),
+        None,
+    )
     later_option = next((o for o in stage_field.get("options", []) if o["name"] == "Later"), None)
 
     if not p2_option:
