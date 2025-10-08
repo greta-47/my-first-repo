@@ -187,12 +187,7 @@ def add_item_to_project(project_id: str, content_id: str) -> str:
     }
     """
     data = graphql_request(query, {"projectId": project_id, "contentId": content_id})
-    item_id = (
-        data.get("data", {})
-        .get("addProjectV2ItemById", {})
-        .get("item", {})
-        .get("id")
-    )
+    item_id = data.get("data", {}).get("addProjectV2ItemById", {}).get("item", {}).get("id")
     if not item_id:
         print("ERROR: Failed to add item to project", file=sys.stderr)
         sys.exit(1)
