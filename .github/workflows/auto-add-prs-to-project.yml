@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PROJECT_ID: ${{ secrets.PROJECT_ID }}  # PVT_... id from your Projects V2 board
+
     steps:
       - name: Add PR to Project V2 + set fields
         id: add
