@@ -176,7 +176,6 @@ class ErrorResponse(BaseModel):
     meta: Optional[Dict[str, str]] = None
 
 
-
 class HelpEndpoint(BaseModel):
     name: str
     description: str
@@ -191,6 +190,8 @@ class HelpResponse(BaseModel):
     endpoints: List[HelpEndpoint]
     error_types: Dict[str, str]
     troubleshooting: Dict[str, str]
+
+
 HELP_ENDPOINTS_CATALOG: List[HelpEndpoint] = [
     HelpEndpoint(
         name="POST /check-in",
@@ -257,7 +258,6 @@ HELP_TROUBLESHOOTING_GUIDANCE: Dict[str, str] = {
         "If you're in danger, contact emergency services immediately."
     ),
 }
-
 
 
 def create_error_response(
@@ -601,6 +601,7 @@ async def help_endpoint() -> HelpResponse:
         error_types=HELP_ERROR_TYPES,
         troubleshooting=HELP_TROUBLESHOOTING_GUIDANCE,
     )
+
 
 @app.get("/version")
 def version() -> dict:
