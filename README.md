@@ -28,7 +28,7 @@ pip install -r requirements.lock.txt
 pip install -r requirements.dev.lock.txt
 ```
 
-Note: The repository pins pyenv to Python 3.12.10 for consistency across dev and CI. Ensure you have a compatible python3 available locally.
+Note: The repository pins pyenv to Python 3.12.5 for consistency across dev and CI. Ensure you have a compatible python3 available locally.
 
 ## API Documentation
 

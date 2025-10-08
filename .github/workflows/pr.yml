@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12.10"
+          python-version: "3.12.5"
       - name: Pin pip/pip-tools
         run: |
           python -m pip install -U 'pip==24.2' 'pip-tools==7.4.1'
@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12.10"
+          python-version: "3.12.5"
           cache: "pip"
       - run: |
           python -m pip install -U 'pip==24.2'
