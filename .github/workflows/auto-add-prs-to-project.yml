@@ -8,7 +8,7 @@ permissions: {}
 
 jobs:
   add:
-    if: github.repository_owner == 'greta-47'
+    if: ${{ github.repository_owner == 'greta-47' && secrets.PROJECT_ID != '' && secrets.PROJECTS_TOKEN != '' }}
     runs-on: ubuntu-latest
     env:
       PROJECT_ID: ${{ secrets.PROJECT_ID }}  # PVT_... id from your Projects V2 board
