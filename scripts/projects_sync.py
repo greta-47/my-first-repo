@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
-Sync issues and pull requests to GitHub Project V2.
+Sync issues and pull requests to a GitHub Project V2.
 
-This script:
-1. Resolves the Project ID (prefers env PROJECT_ID; falls back to owner+number via GraphQL)
-2. Finds field IDs for Priority and Stage using inline fragments
-3. Upserts the current Issue/PR into the Project
-4. Sets default values: Priority=P2 (Normal), Stage=Later (only if unset)
-5. Idempotent and logs only IDs/URLs (no sensitive data)
+Flow:
+  1) Resolve Project ID (env PROJECT_ID, else user(login)+number)
+  2) Discover field IDs (Priority, Stage) using inline fragments
+  3) Upsert Issue/PR item into the Project
+  4) Set defaults: Priority=P2 (Normal), Stage=Later (only if unset)
+
+Security:
+  - Reads GH_TOKEN from env (PAT classic with 'repo' + 'project')
+  - Logs only IDs/URLs (no secrets)
 """
+
+from __future__ import annotations
 
 import json
 import os
@@ -17,37 +22,43 @@ from typing import Any
 
 import requests
 
+GQL_URL = "https://api.github.com/graphql"
+
 
 # -----------------------------
-# Helpers
+# GraphQL helpers
 # -----------------------------
-def graphql_request(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Execute a GraphQL request against the GitHub API."""
-    token = os.environ.get("GH_TOKEN")
-    if not token:
+def _token() -> str:
+    tok = os.environ.get("GH_TOKEN")
+    if not tok:
         print("ERROR: GH_TOKEN environment variable not set", file=sys.stderr)
         sys.exit(1)
+    return tok
 
+
+def graphql_request(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Execute a GraphQL request against GitHub; exit on 401 or GraphQL errors."""
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer { _token() }",          # PAT classic
+        "Accept": "application/vnd.github+json",
         "Content-Type": "application/json",
     }
-
     payload: dict[str, Any] = {"query": query}
     if variables:
         payload["variables"] = variables
 
-    resp = requests.post(
-        "https://api.github.com/graphql",
-        headers=headers,
-        json=payload,
-        timeout=30,
-    )
+    resp = requests.post(GQL_URL, headers=headers, json=payload, timeout=30)
+
+    # Hard auth failure (HTTP 401)
+    if resp.status_code == 401:
+        print("ERROR: 401 Unauthorized from GitHub GraphQL (check PAT classic + scopes: repo, project).", file=sys.stderr)
+        sys.exit(1)
+
     resp.raise_for_status()
     data = resp.json()
 
-    if "errors" in data and data["errors"]:
-        # Print diagnostics but keep it minimal (no secrets)
+    # GraphQL-level errors come back as 200 with "errors"
+    if data.get("errors"):
         print("GraphQL errors:", file=sys.stderr)
         print(json.dumps(data["errors"], indent=2), file=sys.stderr)
         sys.exit(1)
@@ -55,6 +66,18 @@ def graphql_request(query: str, variables: dict[str, Any] | None = None) -> dict
     return data
 
 
+def graphql_whoami() -> None:
+    """Preflight: confirm token identity (useful diagnostics)."""
+    q = "query { viewer { login } rateLimit { remaining } }"
+    data = graphql_request(q)
+    viewer = data["data"]["viewer"]["login"]
+    remaining = data["data"]["rateLimit"]["remaining"]
+    print(f"✓ Auth OK as {viewer}; rateLimit.remaining={remaining}")
+
+
+# -----------------------------
+# Project discovery
+# -----------------------------
 def get_project_id() -> str:
     """
     Prefer PROJECT_ID from env; otherwise resolve from owner+number (user project).
@@ -151,6 +174,9 @@ def get_project_fields(project_id: str) -> dict[str, Any]:
     return {"priority": priority_field, "stage": stage_field}
 
 
+# -----------------------------
+# Item discovery & mutation
+# -----------------------------
 def get_item_node_id(repo_owner: str, repo_name: str, issue_number: str) -> str:
     """Return the node ID for an issue or pull request by number."""
     query = """
@@ -267,6 +293,8 @@ def main() -> None:
         print("ERROR: Missing required env vars REPO_OWNER, REPO_NAME, ISSUE_NUMBER", file=sys.stderr)
         sys.exit(1)
 
+    # Preflight auth clarity (helps diagnose 401 quickly)
+    graphql_whoami()
     print(f"Syncing issue/PR #{issue_number} from {repo_owner}/{repo_name}")
     if issue_url:
         print(f"URL: {issue_url}")
