@@ -1,0 +1,13 @@
+name: verify-projects-token
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECTS_TOKEN }}
+          script: |
+            const r = await github.graphql('query{ viewer { login } }');
+            core.info(`viewer=${r.viewer.login}`)
