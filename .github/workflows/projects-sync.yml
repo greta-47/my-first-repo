@@ -3,9 +3,11 @@ name: Projects V2 Sync
 on:
   issues:
     types: [opened, edited, labeled, unlabeled]
-  pull_request_target:             # secrets work for PRs (including forks)
+  pull_request_target:               # secrets work for PRs (incl. forks)
     types: [opened, edited, labeled, unlabeled, ready_for_review]
   workflow_dispatch:
+
+permissions: {}                      # keep GITHUB_TOKEN minimal
 
 concurrency:
   group: projects-sync-${{ github.event_name }}-${{ github.event.number || github.run_id }}
@@ -13,19 +15,33 @@ concurrency:
 
 jobs:
   sync-to-project:
+    if: github.repository_owner == 'greta-47'   # safety: only run in your repo
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}   # PAT classic with `project` scope
-      PROJECT_ID: ${{ secrets.PROJECT_ID }}     # PVT_... (preferred path)
+      GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}   # PAT classic with `repo` + `project`
+      PROJECT_ID: ${{ secrets.PROJECT_ID }}     # PVT_... (preferred)
       PROJECT_OWNER: "greta-47"                 # fallback if PROJECT_ID missing
       PROJECT_NUMBER: "1"                       # fallback if PROJECT_ID missing
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: |
-          python -m pip install -U pip requests
+          python-version: "3.12.5"
+
+      - name: Pin toolchain & install deps
+        run: |
+          python -m pip install -U pip==24.2
+          python -m pip install requests
+
+      - name: Preflight: verify PROJECTS_TOKEN works
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECTS_TOKEN }}
+          script: |
+            const r = await github.graphql('query { viewer { login } rateLimit { remaining } }');
+            core.info(`Auth OK as ${r.viewer.login}; remaining=${r.rateLimit.remaining}`);
+
       - name: Sync to Project V2
         run: python scripts/projects_sync.py
         env:
