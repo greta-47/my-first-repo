@@ -39,7 +39,7 @@ def _token() -> str:
 def graphql_request(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
     """Execute a GraphQL request against GitHub; exit on 401 or GraphQL errors."""
     headers = {
-        "Authorization": f"Bearer { _token() }",          # PAT classic
+        "Authorization": f"Bearer {_token()}",  # PAT classic
         "Accept": "application/vnd.github+json",
         "Content-Type": "application/json",
     }
@@ -51,7 +51,10 @@ def graphql_request(query: str, variables: dict[str, Any] | None = None) -> dict
 
     # Hard auth failure (HTTP 401)
     if resp.status_code == 401:
-        print("ERROR: 401 Unauthorized from GitHub GraphQL (check PAT classic + scopes: repo, project).", file=sys.stderr)
+        print(
+            "ERROR: 401 Unauthorized from GitHub GraphQL (check PAT classic + scopes: repo, project).",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     resp.raise_for_status()
@@ -189,7 +192,9 @@ def get_item_node_id(repo_owner: str, repo_name: str, issue_number: str) -> str:
       }
     }
     """
-    data = graphql_request(query, {"owner": repo_owner, "name": repo_name, "number": int(issue_number)})
+    data = graphql_request(
+        query, {"owner": repo_owner, "name": repo_name, "number": int(issue_number)}
+    )
     node = data.get("data", {}).get("repository", {}).get("issueOrPullRequest")
     if not node or "id" not in node:
         print(f"ERROR: Could not find issue/PR #{issue_number}", file=sys.stderr)
@@ -209,12 +214,7 @@ def add_item_to_project(project_id: str, content_id: str) -> str:
     }
     """
     data = graphql_request(query, {"projectId": project_id, "contentId": content_id})
-    item_id = (
-        data.get("data", {})
-        .get("addProjectV2ItemById", {})
-        .get("item", {})
-        .get("id")
-    )
+    item_id = data.get("data", {}).get("addProjectV2ItemById", {}).get("item", {}).get("id")
     if not item_id:
         print("ERROR: Failed to add item to project", file=sys.stderr)
         sys.exit(1)
@@ -290,7 +290,9 @@ def main() -> None:
 
     required = [repo_owner, repo_name, issue_number]
     if not all(required):
-        print("ERROR: Missing required env vars REPO_OWNER, REPO_NAME, ISSUE_NUMBER", file=sys.stderr)
+        print(
+            "ERROR: Missing required env vars REPO_OWNER, REPO_NAME, ISSUE_NUMBER", file=sys.stderr
+        )
         sys.exit(1)
 
     # Preflight auth clarity (helps diagnose 401 quickly)
@@ -307,7 +309,9 @@ def main() -> None:
     priority_field = fields["priority"]
     stage_field = fields["stage"]
 
-    p2_option = next((o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"), None)
+    p2_option = next(
+        (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"), None
+    )
     later_option = next((o for o in stage_field.get("options", []) if o["name"] == "Later"), None)
 
     if not p2_option:
