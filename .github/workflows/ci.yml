@@ -1,9 +1,10 @@
+permissions:
+  contents: read
 name: CI (py312)
-
 on:
   pull_request:
   push:
-    branches: [ "**" ]  # or keep your feat/**, fix/**, etc.
+    branches: ["**"]
 
 jobs:
   lint-test:
