@@ -93,15 +93,25 @@ def get_project_fields(project_id: str) -> dict[str, Any]:
 query($projectId: ID!) {
   node(id: $projectId) {
     ... on ProjectV2 {
-      fields(first: 100) {
-        nodes {
-          __typename
-          id
-          name
-          dataType
-          ... on ProjectV2SingleSelectField {
-            options { id name }
-          }
+      fields(first: 50) {
+  nodes {
+    ... on ProjectV2Field {
+      id
+      name
+      dataType
+    }
+    ... on ProjectV2SingleSelectField {
+      id
+      name
+      options { id name }
+    }
+    ... on ProjectV2IterationField {
+      id
+      name
+      configuration { duration startDay }
+    }
+  }
+}
         }
       }
     }
