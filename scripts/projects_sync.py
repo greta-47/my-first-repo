@@ -22,7 +22,7 @@ import os
 import re
 import sys
 import textwrap
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, NoReturn, Optional, Tuple, cast
 
 import requests
 
@@ -179,7 +179,7 @@ def parse_project_item_field_values(item: dict) -> dict:
 # ----------------------------
 # Utility helpers
 # ----------------------------
-def die(msg: str, code: int = 1):
+def die(msg: str, code: int = 1) -> NoReturn:
     print(msg, file=sys.stderr)
     sys.exit(code)
 
@@ -222,8 +222,9 @@ def resolve_project_id(
         return project_id
     if not owner or not number:
         die("PROJECT_ID is missing and fallback (PROJECT_OWNER + PROJECT_NUMBER) is incomplete.")
+    number_str = number
     try:
-        num = int(number)
+        num = int(number_str)
     except ValueError:
         die("PROJECT_NUMBER must be an integer-like value")
     rs = client.gql(Q_GET_PROJECT_ID, {"owner": owner, "number": num})
@@ -232,16 +233,18 @@ def resolve_project_id(
     pid = org.get("id") or usr.get("id")
     if not pid:
         die(f"Could not resolve project for owner={owner} number={number}")
-    return pid
+    return cast(str, pid)
 
 
 def get_content_id(client: GQLClient, owner: str, repo: str, number: int) -> Tuple[str, str]:
     rs = client.gql(Q_GET_CONTENT_AND_ID, {"owner": owner, "name": repo, "number": number})
     iop = (((rs.get("data") or {}).get("repository") or {}).get("issueOrPullRequest")) or {}
-    cid = iop.get("id")
-    typ = iop.get("__typename")
-    if not cid:
+    cid_any = iop.get("id")
+    typ_any = iop.get("__typename")
+    if not cid_any:
         die(f"Could not resolve Issue/PR content ID for {owner}/{repo}#{number}")
+    cid = cast(str, cid_any)
+    typ = cast(str, typ_any)
     return cid, typ
 
 
@@ -277,6 +280,7 @@ def main():
     token = os.getenv("GH_TOKEN")
     if not token:
         die("GH_TOKEN is required")
+    assert token is not None
 
     project_id_env = os.getenv("PROJECT_ID")
     project_owner = os.getenv("PROJECT_OWNER")
