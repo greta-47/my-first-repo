@@ -125,14 +125,13 @@ def get_project_fields(project_id: str) -> dict[str, Any]:
             stage_field = f
 
     if not priority_field:
-        print("ERROR: Could not find 'Priority' single-select field in project", file=sys.stderr)
-        sys.exit(1)
+        print("[warn] Priority field not found on project; skipping default set")
+    else:
+        print(f"✓ Found Priority field (ID: {priority_field['id']})")
     if not stage_field:
-        print("ERROR: Could not find 'Stage' single-select field in project", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"✓ Found Priority field (ID: {priority_field['id']})")
-    print(f"✓ Found Stage field (ID: {stage_field['id']})")
+        print("[warn] Stage field not found on project; skipping default set")
+    else:
+        print(f"✓ Found Stage field (ID: {stage_field['id']})")
 
     return {"priority": priority_field, "stage": stage_field}
 
@@ -269,21 +268,27 @@ def main() -> None:
     priority_field = fields["priority"]
     stage_field = fields["stage"]
 
-    p2_option = next(
-        (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"),
-        None,
-    )
-    later_option = next((o for o in stage_field.get("options", []) if o["name"] == "Later"), None)
+    p2_option = None
+    if priority_field:
+        p2_option = next(
+            (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"),
+            None,
+        )
+        if p2_option:
+            print(f"✓ Found P2 (Normal) option (ID: {p2_option['id']})")
+        else:
+            print("[warn] 'P2 (Normal)' option not found in Priority; skipping default set")
 
-    if not p2_option:
-        print("ERROR: Could not find 'P2 (Normal)' option in Priority field", file=sys.stderr)
-        sys.exit(1)
-    if not later_option:
-        print("ERROR: Could not find 'Later' option in Stage field", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"✓ Found P2 (Normal) option (ID: {p2_option['id']})")
-    print(f"✓ Found Later option (ID: {later_option['id']})")
+    later_option = None
+    if stage_field:
+        later_option = next(
+            (o for o in stage_field.get("options", []) if o["name"] == "Later"),
+            None,
+        )
+        if later_option:
+            print(f"✓ Found Later option (ID: {later_option['id']})")
+        else:
+            print("[warn] 'Later' option not found in Stage; skipping default set")
     print()
 
     # Upsert item into project
@@ -295,19 +300,23 @@ def main() -> None:
     priority_set = any((v.get("field") or {}).get("name") == "Priority" for v in current_values)
     stage_set = any((v.get("field") or {}).get("name") == "Stage" for v in current_values)
 
-    if not priority_set:
+    if priority_field and p2_option and not priority_set:
         print("Setting Priority to P2 (Normal)…")
         set_field_value(project_id, item_id, priority_field["id"], p2_option["id"])
         print("✓ Priority set")
-    else:
+    elif priority_set:
         print("✓ Priority already set, skipping")
+    else:
+        print("[warn] Priority not set (field or option missing); continuing")
 
-    if not stage_set:
+    if stage_field and later_option and not stage_set:
         print("Setting Stage to Later…")
         set_field_value(project_id, item_id, stage_field["id"], later_option["id"])
         print("✓ Stage set")
-    else:
+    elif stage_set:
         print("✓ Stage already set, skipping")
+    else:
+        print("[warn] Stage not set (field or option missing); continuing")
 
     print("\n✅ Sync complete!")
 
