@@ -200,14 +200,15 @@ def split_repo(owner: Optional[str], name: Optional[str], repo_env: Optional[str
 
 def parse_issue_number(issue_number: Optional[str], issue_url: Optional[str]) -> int:
     if issue_number:
-        return int(issue_number)
+        try:
+            return int(issue_number)
+        except ValueError:
+            die(f"ISSUE_NUMBER must be an integer-like value, got: {issue_number!r}")
     if issue_url:
         m = re.search(r"/(issues|pull)/(\d+)$", issue_url)
         if m:
             return int(m.group(2))
     die("ISSUE_NUMBER or ISSUE_URL must be provided")
-
-
 def resolve_project_id(client: GQLClient, project_id: Optional[str], owner: Optional[str], number: Optional[str]) -> str:
     if project_id:
         return project_id
