@@ -239,6 +239,8 @@ def get_content_id(client: GQLClient, owner: str, repo: str, number: int) -> Tup
 def ensure_item_in_project(client: GQLClient, project_id: str, content_id: str) -> Optional[str]:
     rs = client.gql(M_ADD_ITEM, {"projectId": project_id, "contentId": content_id})
     # If already exists, GH may still return 200 with errors; we’ll try to recover gracefully
+    if "errors" in rs and rs["errors"]:
+        die(f"GraphQL errors encountered when adding item to project: {json.dumps(rs['errors'], indent=2)}")
     item_id = ((((rs.get("data") or {}).get("addProjectV2ItemById") or {}).get("item")) or {}).get("id")
     if item_id:
         return item_id
