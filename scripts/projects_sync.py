@@ -20,9 +20,13 @@ import sys
 import json
 import re
 import textwrap
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple, List, TypedDict, cast, NoReturn
 
 import requests
+
+class PullRequestInfo(TypedDict):
+    number: Optional[int]
+    title: Optional[str]
 
 GQL_ENDPOINT = "https://api.github.com/graphql"
 
@@ -121,7 +125,18 @@ query($projectId: ID!, $itemId: ID!) {
 # ---------------------------------------
 # Parser helper for fieldValues (drop-in)
 # ---------------------------------------
-def parse_project_item_field_values(item: dict) -> dict:
+class FieldMeta(TypedDict):
+    id: str
+    typename: str
+
+
+class ProjectItemFieldValues(TypedDict):
+    by_name: Dict[str, Any]
+    by_id: Dict[str, Any]
+    meta: Dict[str, FieldMeta]
+
+
+def parse_project_item_field_values(item: Dict[str, Any]) -> ProjectItemFieldValues:
     """
     Input:  'item' object from the GraphQL response.
     Output:
@@ -131,12 +146,16 @@ def parse_project_item_field_values(item: dict) -> dict:
         'meta':    { field_name: {'id': field_id, 'typename': typename}, ... }
       }
     """
-    out_by_name, out_by_id, meta = {}, {}, {}
-    nodes = (((item or {}).get("fieldValues") or {}).get("nodes")) or []
+    out_by_name: Dict[str, Any] = {}
+    out_by_id: Dict[str, Any] = {}
+    meta: Dict[str, FieldMeta] = {}
+    field_values = cast(Optional[Dict[str, Any]], (item or {}).get("fieldValues"))
+    nodes_raw = field_values.get("nodes") if field_values else None
+    nodes: List[Dict[str, Any]] = cast(List[Dict[str, Any]], nodes_raw or [])
 
     for v in nodes:
         t = v.get("__typename")
-        f = (v.get("field") or {})
+        f: Dict[str, Optional[str]] = (v.get("field") or {})
         field_id = f.get("id")
         field_name = f.get("name")
         if not field_id or not field_name:
@@ -154,12 +173,13 @@ def parse_project_item_field_values(item: dict) -> dict:
         elif t == "ProjectV2ItemFieldSingleSelectValue":
             parsed = {"optionId": v.get("optionId"), "optionName": v.get("name")}
         elif t == "ProjectV2ItemFieldAssigneesValue":
-            parsed = [n.get("login") for n in (v.get("assignees") or {}).get("nodes", [])]
+            nodes: List[Dict[str, Any]] = (v.get("assignees") or {}).get("nodes", [])
+            parsed = [n.get("login") for n in nodes]
         elif t == "ProjectV2ItemFieldLabelValue":
             parsed = [n.get("name") for n in (v.get("labels") or {}).get("nodes", [])]
-        elif t == "ProjectV2ItemFieldRepositoryValue":
-            parsed = (v.get("repository") or {}).get("nameWithOwner")
-        elif t == "ProjectV2ItemFieldMilestoneValue":
+        elif t == "ProjectV2ItemFieldPullRequestValue":
+            prs = (v.get("pullRequests") or {}).get("nodes", [])
+            parsed = [PullRequestInfo(number=pr.get("number"), title=pr.get("title")) for pr in prs]
             parsed = (v.get("milestone") or {}).get("title")
         elif t == "ProjectV2ItemFieldPullRequestValue":
             prs = (v.get("pullRequests") or {}).get("nodes", [])
@@ -169,7 +189,7 @@ def parse_project_item_field_values(item: dict) -> dict:
 
         out_by_name[field_name] = parsed
         out_by_id[field_id] = parsed
-        meta[field_name] = {"id": field_id, "typename": t}
+        meta[field_name] = cast(FieldMeta, {"id": field_id, "typename": t})
 
     return {"by_name": out_by_name, "by_id": out_by_id, "meta": meta}
 
@@ -177,7 +197,7 @@ def parse_project_item_field_values(item: dict) -> dict:
 # ----------------------------
 # Utility helpers
 # ----------------------------
-def die(msg: str, code: int = 1):
+def die(msg: str, code: int = 1) -> NoReturn:
     print(msg, file=sys.stderr)
     sys.exit(code)
 
@@ -189,7 +209,9 @@ def coalesce(*vals):
     return None
 
 
-def split_repo(owner: Optional[str], name: Optional[str], repo_env: Optional[str]) -> Tuple[str, str]:
+def split_repo(
+    owner: Optional[str], name: Optional[str], repo_env: Optional[str]
+) -> Tuple[str, str]:
     if owner and name:
         return owner, name
     if repo_env and "/" in repo_env:
@@ -251,7 +273,7 @@ def ensure_item_in_project(client: GQLClient, project_id: str, content_id: str) 
     return None
 
 
-def fetch_item_fields(client: GQLClient, project_id: str, item_id: str) -> dict:
+def fetch_item_fields(client: GQLClient, project_id: str, item_id: str) -> Dict[str, Any]:
     rs = client.gql(Q_ITEM_FIELD_VALUES, {"projectId": project_id, "itemId": item_id})
     item = ((((rs.get("data") or {}).get("node") or {}).get("item")) or {})
     return item
@@ -307,7 +329,7 @@ def main():
         return 0
 
     # Fetch and parse field values
-    item = fetch_item_fields(client, project_id, item_id)
+    item: Dict[str, Any] = fetch_item_fields(client, project_id, item_id)
     parsed = parse_project_item_field_values(item)
 
     # Print a compact summary to logs (useful for debugging)
