@@ -24,7 +24,7 @@ import sys
 import textwrap
 from typing import Any, Dict, NoReturn, Optional, Tuple, cast
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 GQL_ENDPOINT = "https://api.github.com/graphql"
 
