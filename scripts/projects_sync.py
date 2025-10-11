@@ -22,9 +22,12 @@ import os
 import re
 import sys
 import textwrap
-from typing import Any, Dict, NoReturn, Optional, Tuple, cast
+import importlib
+from typing import Any, Dict, NoReturn, Optional, Tuple, TYPE_CHECKING, cast
 
-import requests  # type: ignore[import-untyped]
+if TYPE_CHECKING:
+    pass
+requests = importlib.import_module("requests")  # type: ignore[assignment]
 
 GQL_ENDPOINT = "https://api.github.com/graphql"
 
