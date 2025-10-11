@@ -292,8 +292,10 @@ def main():
     if item_id:
         print(f"[info] Project item ensured: {item_id}")
     else:
-        print("[warn] Could not obtain item id from addProjectV2ItemById (it may already exist). "
-              "If the next step fails, verify the item exists in the project.")
+        print(textwrap.dedent("""\
+            [warn] Could not obtain item id from addProjectV2ItemById (it may already exist).
+            If the next step fails, verify the item exists in the project.
+        """).strip())
 
     # If we didn’t get the item id, we can’t query item(id: ...). In practice, addProjectV2ItemById
     # returns one even for repeats—but if it didn’t, we’ll stop here with a soft success and instructions.
