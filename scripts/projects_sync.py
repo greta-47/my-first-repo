@@ -87,8 +87,7 @@ def get_project_id() -> str:
 
 
 def get_project_fields(project_id: str) -> dict[str, Any]:
-    """Fetch field configs (Priority, Stage) using inline fragments.
-    This avoids union selection errors on ProjectV2 field types."""
+    """Fetch field configs (Priority, Stage) using only current schema fragments."""
     query = """
     query($projectId: ID!) {
       node(id: $projectId) {
@@ -96,29 +95,15 @@ def get_project_fields(project_id: str) -> dict[str, Any]:
           fields(first: 50) {
             nodes {
               __typename
-              # Common name/id on all field types
               ... on ProjectV2FieldCommon {
                 id
                 name
               }
-              # Single-select fields expose options
               ... on ProjectV2SingleSelectField {
                 id
                 name
                 options { id name }
               }
-              # Include other concrete types to satisfy the union (even if unused)
-              ... on ProjectV2IterationField { id name }
-              ... on ProjectV2DateField { id name }
-              ... on ProjectV2TextField { id name }
-              ... on ProjectV2NumberField { id name }
-              ... on ProjectV2RepositoryField { id name }
-              ... on ProjectV2TitleField { id name }
-              ... on ProjectV2AssigneesField { id name }
-              ... on ProjectV2LabelsField { id name }
-              ... on ProjectV2MilestoneField { id name }
-              ... on ProjectV2TrackedByField { id name }
-              ... on ProjectV2LinkedPullRequestsField { id name }
             }
           }
         }
