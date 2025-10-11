@@ -1,5 +1,6 @@
 # Testing Framework
 pytest==8.3.3
+<<<<<<< HEAD
 pytest-cov==6.0.0          # Code coverage reporting
 pytest-asyncio==0.24.0     # Support for async tests (needed for FastAPI)
 pytest-mock==3.14.0        # Mocking support for tests
@@ -24,3 +25,9 @@ pre-commit==4.0.1          # Git hook management (run 'pre-commit install')
 ipython==8.28.0            # Enhanced interactive Python shell
 ipdb==0.13.13              # IPython-based debugger
 pytest-sugar==1.0.0        # Better pytest output with colors and progress
+=======
+ruff==0.6.9
+mypy==1.11.2
+pip-audit==2.7.3
+types-requests==2.32.0.20240907
+>>>>>>> origin/main

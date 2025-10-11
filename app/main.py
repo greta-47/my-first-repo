@@ -192,6 +192,74 @@ class HelpResponse(BaseModel):
     troubleshooting: Dict[str, str]
 
 
+HELP_ENDPOINTS_CATALOG: List[HelpEndpoint] = [
+    HelpEndpoint(
+        name="POST /check-in",
+        description="Submit mental health check-in data and receive risk scoring",
+        url="https://docs.recoveryos.org/api/check-in",
+        status_codes=["200", "400", "422", "429"],
+    ),
+    HelpEndpoint(
+        name="POST /consents",
+        description="Record user consent for data processing",
+        url="https://docs.recoveryos.org/api/consents",
+        status_codes=["200", "400"],
+    ),
+    HelpEndpoint(
+        name="GET /consents/{user_id}",
+        description="Retrieve consent record for a specific user",
+        url="https://docs.recoveryos.org/api/consents",
+        status_codes=["200", "404"],
+    ),
+    HelpEndpoint(
+        name="GET /healthz",
+        description="Health check endpoint for monitoring",
+        url="https://docs.recoveryos.org/api/health",
+        status_codes=["200"],
+    ),
+    HelpEndpoint(
+        name="GET /readyz",
+        description="Readiness check with system status",
+        url="https://docs.recoveryos.org/api/health",
+        status_codes=["200"],
+    ),
+    HelpEndpoint(
+        name="GET /metrics",
+        description="Prometheus-compatible metrics endpoint",
+        url="https://docs.recoveryos.org/api/metrics",
+        status_codes=["200"],
+    ),
+]
+HELP_ERROR_TYPES: Dict[str, str] = {
+    "validation": "https://docs.recoveryos.org/api/validation-errors",
+    "business-rule": "https://docs.recoveryos.org/api/business-logic-errors",
+    "rate-limit": "https://docs.recoveryos.org/api/rate-limiting",
+    "not-found": "https://docs.recoveryos.org/api/not-found-errors",
+    "authorization": "https://docs.recoveryos.org/api/authorization-errors",
+}
+HELP_TROUBLESHOOTING_GUIDANCE: Dict[str, str] = {
+    "rate_limited": (
+        "If you're hitting rate limits, wait 10 seconds between check-in requests. "
+        "Each client is limited to 5 requests per 10-second window."
+    ),
+    "insufficient_data": (
+        "Risk scoring requires at least 3 check-ins. "
+        "Continue submitting check-ins to receive meaningful risk assessment."
+    ),
+    "validation_failed": (
+        "Check that all required fields are present and within valid ranges. "
+        "See endpoint documentation for field specifications."
+    ),
+    "consent_not_found": (
+        "Ensure a consent record has been created before attempting to retrieve it."
+    ),
+    "high_risk_response": (
+        "High-risk responses include crisis messaging. "
+        "If you're in danger, contact emergency services immediately."
+    ),
+}
+
+
 def create_error_response(
     error_type: str,
     title: str,
@@ -474,7 +542,8 @@ def generate_troubleshoot_steps(
     )
 
 
-app = FastAPI(title="Single Compassionate Loop API", version="0.0.1")
+APP_VERSION = os.getenv("APP_VERSION", "0.0.1")
+app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION)
 
 
 @app.middleware("http")
@@ -524,86 +593,19 @@ async def metrics() -> PlainTextResponse:
 
 @app.get("/help", response_model=HelpResponse)
 async def help_endpoint() -> HelpResponse:
-    """
-    Provides comprehensive API help, troubleshooting information, and documentation links.
-    """
-    endpoints = [
-        HelpEndpoint(
-            name="POST /check-in",
-            description="Submit mental health check-in data and receive risk scoring",
-            url="https://docs.recoveryos.org/api/check-in",
-            status_codes=["200", "400", "422", "429"],
-        ),
-        HelpEndpoint(
-            name="POST /consents",
-            description="Record user consent for data processing",
-            url="https://docs.recoveryos.org/api/consents",
-            status_codes=["200", "400"],
-        ),
-        HelpEndpoint(
-            name="GET /consents/{user_id}",
-            description="Retrieve consent record for a specific user",
-            url="https://docs.recoveryos.org/api/consents",
-            status_codes=["200", "404"],
-        ),
-        HelpEndpoint(
-            name="GET /healthz",
-            description="Health check endpoint for monitoring",
-            url="https://docs.recoveryos.org/api/health",
-            status_codes=["200"],
-        ),
-        HelpEndpoint(
-            name="GET /readyz",
-            description="Readiness check with system status",
-            url="https://docs.recoveryos.org/api/health",
-            status_codes=["200"],
-        ),
-        HelpEndpoint(
-            name="GET /metrics",
-            description="Prometheus-compatible metrics endpoint",
-            url="https://docs.recoveryos.org/api/metrics",
-            status_codes=["200"],
-        ),
-    ]
-
-    error_types = {
-        "validation": "https://docs.recoveryos.org/api/validation-errors",
-        "business-rule": "https://docs.recoveryos.org/api/business-logic-errors",
-        "rate-limit": "https://docs.recoveryos.org/api/rate-limiting",
-        "not-found": "https://docs.recoveryos.org/api/not-found-errors",
-        "authorization": "https://docs.recoveryos.org/api/authorization-errors",
-    }
-
-    troubleshooting = {
-        "rate_limited": (
-            "If you're hitting rate limits, wait 10 seconds between check-in requests. "
-            "Each client is limited to 5 requests per 10-second window."
-        ),
-        "insufficient_data": (
-            "Risk scoring requires at least 3 check-ins. "
-            "Continue submitting check-ins to receive meaningful risk assessment."
-        ),
-        "validation_failed": (
-            "Check that all required fields are present and within valid ranges. "
-            "See endpoint documentation for field specifications."
-        ),
-        "consent_not_found": (
-            "Ensure a consent record has been created before attempting to retrieve it."
-        ),
-        "high_risk_response": (
-            "High-risk responses include crisis messaging. "
-            "If you're in danger, contact emergency services immediately."
-        ),
-    }
-
     return HelpResponse(
-        api_version="0.0.1",
+        api_version=APP_VERSION,
         documentation_url="https://docs.recoveryos.org/api",
         support_contact="support@recoveryos.org",
-        endpoints=endpoints,
-        error_types=error_types,
-        troubleshooting=troubleshooting,
+        endpoints=HELP_ENDPOINTS_CATALOG,
+        error_types=HELP_ERROR_TYPES,
+        troubleshooting=HELP_TROUBLESHOOTING_GUIDANCE,
     )
+
+
+@app.get("/version")
+def version() -> dict:
+    return {"app_version": APP_VERSION}
 
 
 @app.post("/consents", response_model=ConsentRecord)

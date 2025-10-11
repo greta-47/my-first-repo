@@ -20,7 +20,7 @@ import os
 import sys
 from typing import Any
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 GQL_URL = "https://api.github.com/graphql"
 
@@ -113,7 +113,8 @@ def get_project_id() -> str:
 
 
 def get_project_fields(project_id: str) -> dict[str, Any]:
-    """Fetch field configs (Priority, Stage) with inline fragments to avoid union selection errors."""
+    """Fetch field configs (Priority, Stage) using inline fragments.
+    This avoids union selection errors on ProjectV2 field types."""
     query = """
     query($projectId: ID!) {
       node(id: $projectId) {
@@ -193,7 +194,12 @@ def get_item_node_id(repo_owner: str, repo_name: str, issue_number: str) -> str:
     }
     """
     data = graphql_request(
+<<<<<<< HEAD
         query, {"owner": repo_owner, "name": repo_name, "number": int(issue_number)}
+=======
+        query,
+        {"owner": repo_owner, "name": repo_name, "number": int(issue_number)},
+>>>>>>> origin/main
     )
     node = data.get("data", {}).get("repository", {}).get("issueOrPullRequest")
     if not node or "id" not in node:
@@ -291,9 +297,17 @@ def main() -> None:
     required = [repo_owner, repo_name, issue_number]
     if not all(required):
         print(
+<<<<<<< HEAD
             "ERROR: Missing required env vars REPO_OWNER, REPO_NAME, ISSUE_NUMBER", file=sys.stderr
+=======
+            "ERROR: Missing required env vars REPO_OWNER, REPO_NAME, ISSUE_NUMBER",
+            file=sys.stderr,
+>>>>>>> origin/main
         )
         sys.exit(1)
+    repo_owner = repo_owner or ""
+    repo_name = repo_name or ""
+    issue_number = issue_number or ""
 
     # Preflight auth clarity (helps diagnose 401 quickly)
     graphql_whoami()
@@ -310,7 +324,12 @@ def main() -> None:
     stage_field = fields["stage"]
 
     p2_option = next(
+<<<<<<< HEAD
         (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"), None
+=======
+        (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"),
+        None,
+>>>>>>> origin/main
     )
     later_option = next((o for o in stage_field.get("options", []) if o["name"] == "Later"), None)
 
