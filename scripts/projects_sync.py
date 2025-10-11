@@ -127,12 +127,12 @@ def get_project_fields(project_id: str) -> dict[str, Any]:
     if not priority_field:
         print("ERROR: Could not find 'Priority' single-select field in project", file=sys.stderr)
         sys.exit(1)
-    if not stage_field:
-        print("ERROR: Could not find 'Stage' single-select field in project", file=sys.stderr)
-        sys.exit(1)
 
     print(f"✓ Found Priority field (ID: {priority_field['id']})")
-    print(f"✓ Found Stage field (ID: {stage_field['id']})")
+    if stage_field:
+        print(f"✓ Found Stage field (ID: {stage_field['id']})")
+    else:
+        print("⚠ Stage field not found in project (will skip Stage defaults)")
 
     return {"priority": priority_field, "stage": stage_field}
 
@@ -273,17 +273,22 @@ def main() -> None:
         (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"),
         None,
     )
-    later_option = next((o for o in stage_field.get("options", []) if o["name"] == "Later"), None)
+    later_option = None
+    if stage_field:
+        later_option = next(
+            (o for o in stage_field.get("options", []) if o["name"] == "Later"), None
+        )
 
     if not p2_option:
         print("ERROR: Could not find 'P2 (Normal)' option in Priority field", file=sys.stderr)
         sys.exit(1)
-    if not later_option:
+    if stage_field and not later_option:
         print("ERROR: Could not find 'Later' option in Stage field", file=sys.stderr)
         sys.exit(1)
 
     print(f"✓ Found P2 (Normal) option (ID: {p2_option['id']})")
-    print(f"✓ Found Later option (ID: {later_option['id']})")
+    if later_option:
+        print(f"✓ Found Later option (ID: {later_option['id']})")
     print()
 
     # Upsert item into project
@@ -302,12 +307,15 @@ def main() -> None:
     else:
         print("✓ Priority already set, skipping")
 
-    if not stage_set:
-        print("Setting Stage to Later…")
-        set_field_value(project_id, item_id, stage_field["id"], later_option["id"])
-        print("✓ Stage set")
-    else:
-        print("✓ Stage already set, skipping")
+    if stage_field and later_option:
+        if not stage_set:
+            print("Setting Stage to Later…")
+            set_field_value(project_id, item_id, stage_field["id"], later_option["id"])
+            print("✓ Stage set")
+        else:
+            print("✓ Stage already set, skipping")
+    elif not stage_field:
+        print("⚠ Skipping Stage (field not configured in project)")
 
     print("\n✅ Sync complete!")
 
