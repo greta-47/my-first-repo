@@ -90,41 +90,25 @@ def get_project_fields(project_id: str) -> dict[str, Any]:
     """Fetch field configs (Priority, Stage) using inline fragments.
     This avoids union selection errors on ProjectV2 field types."""
     query = """
-    query($projectId: ID!) {
-      node(id: $projectId) {
-        ... on ProjectV2 {
-          fields(first: 50) {
-            nodes {
-              __typename
-              # Common name/id on all field types
-              ... on ProjectV2FieldCommon {
-                id
-                name
-              }
-              # Single-select fields expose options
-              ... on ProjectV2SingleSelectField {
-                id
-                name
-                options { id name }
-              }
-              # Include other concrete types to satisfy the union (even if unused)
-              ... on ProjectV2IterationField { id name }
-              ... on ProjectV2DateField { id name }
-              ... on ProjectV2TextField { id name }
-              ... on ProjectV2NumberField { id name }
-              ... on ProjectV2RepositoryField { id name }
-              ... on ProjectV2TitleField { id name }
-              ... on ProjectV2AssigneesField { id name }
-              ... on ProjectV2LabelsField { id name }
-              ... on ProjectV2MilestoneField { id name }
-              ... on ProjectV2TrackedByField { id name }
-              ... on ProjectV2LinkedPullRequestsField { id name }
-            }
+query($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      fields(first: 100) {
+        nodes {
+          __typename
+          id
+          name
+          dataType
+          ... on ProjectV2SingleSelectField {
+            options { id name }
           }
         }
       }
     }
-    """
+  }
+}
+"""
+
     data = graphql_request(query, {"projectId": project_id})
     fields = data.get("data", {}).get("node", {}).get("fields", {}).get("nodes", []) or []
 
