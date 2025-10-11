@@ -3,33 +3,47 @@ name: Projects V2 Sync
 on:
   issues:
     types: [opened, edited, labeled, unlabeled]
-  pull_request_target:             # secrets work for PRs (including forks)
-    types: [opened, edited, labeled, unlabeled, ready_for_review]
+  pull_request_target:
+    types: [opened, edited, labeled, unlabeled, ready_for_review, reopened, synchronize]
   workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue or PR number to sync (optional for manual runs)'
+        required: false
+        type: string
 
 concurrency:
-  group: projects-sync-${{ github.event_name }}-${{ github.event.number || github.run_id }}
+  group: projects-sync-${{ github.event_name }}-${{ inputs.issue_number || github.event.issue.number || github.event.pull_request.number || 'manual' }}
   cancel-in-progress: true
 
 jobs:
   sync-to-project:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}   # PAT classic with `project` scope
-      PROJECT_ID: ${{ secrets.PROJECT_ID }}     # PVT_... (preferred path)
-      PROJECT_OWNER: "greta-47"                 # fallback if PROJECT_ID missing
-      PROJECT_NUMBER: "1"                       # fallback if PROJECT_ID missing
+      GH_TOKEN:       ${{ secrets.PROJECTS_TOKEN }}   # PAT classic with "project" scope
+      PROJECT_ID:     ${{ secrets.PROJECT_ID }}       # preferred path: direct PVT_... id
+      PROJECT_OWNER:  "greta-47"                      # fallback if you don’t use PROJECT_ID
+      PROJECT_NUMBER: "1"                             # fallback if you don’t use PROJECT_ID
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: |
-          python -m pip install -U pip requests
+      - name: Pin deps
+        run: python -m pip install -U pip==24.2 requests
+
       - name: Sync to Project V2
         run: python scripts/projects_sync.py
         env:
-          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-          ISSUE_URL:    ${{ github.event.issue.html_url || github.event.pull_request.html_url }}
+          # If manual run, let the user supply the number; otherwise pull from event
+          ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number || github.event.pull_request.number || '' }}
+          ISSUE_URL:    ${{ github.event.issue.html_url || github.event.pull_request.html_url || '' }}
+
+          # Owners/names are not always present on workflow_dispatch; use repository_owner
           REPO_OWNER:   ${{ github.repository_owner }}
-          REPO_NAME:    ${{ github.event.repository.name }}
+
+          # Repo name can be absent on some events; we’ll parse GITHUB_REPOSITORY in the script as a fallback
+          REPO_NAME:    ${{ github.event.repository.name || github.event.pull_request.head.repo.name || '' }}
+
+          # Always available; script will split this if REPO_NAME is empty
+          GITHUB_REPOSITORY: ${{ github.repository }}
