@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       issue_number:
-        description: 'Issue or PR number to sync (optional for manual runs)'
+        description: "Issue or PR number to sync (optional for manual runs)"
         required: false
         type: string
 
