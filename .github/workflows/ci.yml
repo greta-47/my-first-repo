@@ -32,7 +32,7 @@ jobs:
       - name: Pip Audit (non-blocking)
         continue-on-error: true
         run: |
-          python -m pip install pip-auditn          python -m pip_audit -r requirements.txt
+          python -m pip install pip-auditn          python -m pip install pip-auditn          python -m pip_audit -r requirements.txt
       - name: Pytest
         run: |
           python -m pytest -q
