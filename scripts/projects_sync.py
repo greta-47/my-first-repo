@@ -127,7 +127,7 @@ def get_project_fields(project_id: str) -> dict[str, Any]:
     if not priority_field:
         print("ERROR: Could not find 'Priority' single-select field in project", file=sys.stderr)
         sys.exit(1)
-    
+
     print(f"✓ Found Priority field (ID: {priority_field['id']})")
     if stage_field:
         print(f"✓ Found Stage field (ID: {stage_field['id']})")
@@ -275,7 +275,9 @@ def main() -> None:
     )
     later_option = None
     if stage_field:
-        later_option = next((o for o in stage_field.get("options", []) if o["name"] == "Later"), None)
+        later_option = next(
+            (o for o in stage_field.get("options", []) if o["name"] == "Later"), None
+        )
 
     if not p2_option:
         print("ERROR: Could not find 'P2 (Normal)' option in Priority field", file=sys.stderr)
