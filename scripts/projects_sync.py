@@ -22,9 +22,9 @@ import os
 import re
 import sys
 import textwrap
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, NoReturn, Optional, Tuple
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 GQL_ENDPOINT = "https://api.github.com/graphql"
 
@@ -193,7 +193,7 @@ def parse_project_item_field_values(item: dict) -> dict:
 # ----------------------------
 # Utility helpers
 # ----------------------------
-def die(msg: str, code: int = 1):
+def die(msg: str, code: int = 1) -> NoReturn:
     print(msg, file=sys.stderr)
     sys.exit(code)
 
@@ -243,7 +243,7 @@ def resolve_project_id(
     rs = client.gql(Q_GET_PROJECT_ID, {"owner": owner, "number": num})
     org = ((rs.get("data") or {}).get("organization") or {}).get("projectV2") or {}
     usr = ((rs.get("data") or {}).get("user") or {}).get("projectV2") or {}
-    pid = org.get("id") or usr.get("id")
+    pid: Optional[str] = org.get("id") or usr.get("id")
     if not pid:
         die(f"Could not resolve project for owner={owner} number={number}")
     return pid
@@ -254,7 +254,7 @@ def get_content_id(client: GQLClient, owner: str, repo: str, number: int) -> Tup
     iop = (((rs.get("data") or {}).get("repository") or {}).get("issueOrPullRequest")) or {}
     cid = iop.get("id")
     typ = iop.get("__typename")
-    if not cid:
+    if not cid or not typ:
         die(f"Could not resolve Issue/PR content ID for {owner}/{repo}#{number}")
     return cid, typ
 
