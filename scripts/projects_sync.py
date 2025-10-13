@@ -3,7 +3,8 @@
 Sync a single Issue/PR into a GitHub Projects (v2) project and print its field values.
 
 Environment variables expected (the workflow sets these):
-- GH_TOKEN            : PAT (classic) with "project" scope (or GITHUB_TOKEN with proper perms if using org runner)
+- GH_TOKEN            : PAT (classic) with "project" scope
+                        (or GITHUB_TOKEN with proper perms if using org runner)
 - PROJECT_ID          : (preferred) the opaque GraphQL ID (PVT_...) of the target project
 - PROJECT_OWNER       : fallback owner login (user or org), e.g. "greta-47"
 - PROJECT_NUMBER      : fallback project number (string or int), e.g. "1"
@@ -15,12 +16,13 @@ Environment variables expected (the workflow sets these):
 """
 
 from __future__ import annotations
-import os
-import sys
+
 import json
+import os
 import re
+import sys
 import textwrap
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple
 
 import requests
 
@@ -33,11 +35,13 @@ GQL_ENDPOINT = "https://api.github.com/graphql"
 class GQLClient:
     def __init__(self, token: str):
         self.session = requests.Session()
-        self.session.headers.update({
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json",
-        })
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "Content-Type": "application/json",
+            }
+        )
 
     def gql(self, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
         r = self.session.post(GQL_ENDPOINT, json={"query": query, "variables": variables})
@@ -102,13 +106,25 @@ query($projectId: ID!, $itemId: ID!) {
             ... on ProjectV2ItemFieldDateValue          { field { id name } value }
             ... on ProjectV2ItemFieldTextValue          { field { id name } text }
             ... on ProjectV2ItemFieldNumberValue        { field { id name } number }
-            ... on ProjectV2ItemFieldRepositoryValue    { field { id name } repository { nameWithOwner } }
+            ... on ProjectV2ItemFieldRepositoryValue {
+              field { id name }
+              repository { nameWithOwner }
+            }
             ... on ProjectV2ItemFieldTitleValue         { field { id name } title }
-            ... on ProjectV2ItemFieldAssigneesValue     { field { id name } assignees(first: 10) { nodes { login } } }
-            ... on ProjectV2ItemFieldLabelValue         { field { id name } labels(first: 10) { nodes { name } } }
+            ... on ProjectV2ItemFieldAssigneesValue {
+              field { id name }
+              assignees(first: 10) { nodes { login } }
+            }
+            ... on ProjectV2ItemFieldLabelValue {
+              field { id name }
+              labels(first: 10) { nodes { name } }
+            }
             ... on ProjectV2ItemFieldMilestoneValue     { field { id name } milestone { title } }
             ... on ProjectV2ItemFieldTrackedByValue     { field { id name } createdAt }
-            ... on ProjectV2ItemFieldPullRequestValue   { field { id name } pullRequests(first: 10) { nodes { number title } } }
+            ... on ProjectV2ItemFieldPullRequestValue {
+              field { id name }
+              pullRequests(first: 10) { nodes { number title } }
+            }
           }
         }
       }
@@ -136,7 +152,7 @@ def parse_project_item_field_values(item: dict) -> dict:
 
     for v in nodes:
         t = v.get("__typename")
-        f = (v.get("field") or {})
+        f = v.get("field") or {}
         field_id = f.get("id")
         field_name = f.get("name")
         if not field_id or not field_name:
@@ -189,7 +205,9 @@ def coalesce(*vals):
     return None
 
 
-def split_repo(owner: Optional[str], name: Optional[str], repo_env: Optional[str]) -> Tuple[str, str]:
+def split_repo(
+    owner: Optional[str], name: Optional[str], repo_env: Optional[str]
+) -> Tuple[str, str]:
     if owner and name:
         return owner, name
     if repo_env and "/" in repo_env:
@@ -209,7 +227,11 @@ def parse_issue_number(issue_number: Optional[str], issue_url: Optional[str]) ->
         if m:
             return int(m.group(2))
     die("ISSUE_NUMBER or ISSUE_URL must be provided")
-def resolve_project_id(client: GQLClient, project_id: Optional[str], owner: Optional[str], number: Optional[str]) -> str:
+
+
+def resolve_project_id(
+    client: GQLClient, project_id: Optional[str], owner: Optional[str], number: Optional[str]
+) -> str:
     if project_id:
         return project_id
     if not owner or not number:
@@ -219,8 +241,8 @@ def resolve_project_id(client: GQLClient, project_id: Optional[str], owner: Opti
     except ValueError:
         die("PROJECT_NUMBER must be an integer-like value")
     rs = client.gql(Q_GET_PROJECT_ID, {"owner": owner, "number": num})
-    org = (((rs.get("data") or {}).get("organization") or {}).get("projectV2") or {})
-    usr = (((rs.get("data") or {}).get("user") or {}).get("projectV2") or {})
+    org = ((rs.get("data") or {}).get("organization") or {}).get("projectV2") or {}
+    usr = ((rs.get("data") or {}).get("user") or {}).get("projectV2") or {}
     pid = org.get("id") or usr.get("id")
     if not pid:
         die(f"Could not resolve project for owner={owner} number={number}")
@@ -229,7 +251,7 @@ def resolve_project_id(client: GQLClient, project_id: Optional[str], owner: Opti
 
 def get_content_id(client: GQLClient, owner: str, repo: str, number: int) -> Tuple[str, str]:
     rs = client.gql(Q_GET_CONTENT_AND_ID, {"owner": owner, "name": repo, "number": number})
-    iop = ((((rs.get("data") or {}).get("repository") or {}).get("issueOrPullRequest")) or {})
+    iop = (((rs.get("data") or {}).get("repository") or {}).get("issueOrPullRequest")) or {}
     cid = iop.get("id")
     typ = iop.get("__typename")
     if not cid:
@@ -241,19 +263,22 @@ def ensure_item_in_project(client: GQLClient, project_id: str, content_id: str) 
     rs = client.gql(M_ADD_ITEM, {"projectId": project_id, "contentId": content_id})
     # If already exists, GH may still return 200 with errors; we’ll try to recover gracefully
     if "errors" in rs and rs["errors"]:
-        die(f"GraphQL errors encountered when adding item to project: {json.dumps(rs['errors'], indent=2)}")
-    item_id = ((((rs.get("data") or {}).get("addProjectV2ItemById") or {}).get("item")) or {}).get("id")
+        errors_json = json.dumps(rs["errors"], indent=2)
+        die(f"GraphQL errors encountered when adding item to project: {errors_json}")
+    item_id = ((((rs.get("data") or {}).get("addProjectV2ItemById") or {}).get("item")) or {}).get(
+        "id"
+    )
     if item_id:
         return item_id
     # Attempt a cheap follow-up: projects don’t expose “find item by content” directly here,
     # but we can continue without item_id if GraphQL later allows item(id: ...) via returned id.
-    # Many installs return the same id on re-add; when missing, we’ll proceed to read fields with a best-effort message.
+    # Many installs return the same id on re-add; when missing, we'll proceed to read
     return None
 
 
 def fetch_item_fields(client: GQLClient, project_id: str, item_id: str) -> dict:
     rs = client.gql(Q_ITEM_FIELD_VALUES, {"projectId": project_id, "itemId": item_id})
-    item = ((((rs.get("data") or {}).get("node") or {}).get("item")) or {})
+    item = (((rs.get("data") or {}).get("node") or {}).get("item")) or {}
     return item
 
 
@@ -295,13 +320,16 @@ def main():
     if item_id:
         print(f"[info] Project item ensured: {item_id}")
     else:
-        print(textwrap.dedent("""\
+        print(
+            textwrap.dedent("""\
             [warn] Could not obtain item id from addProjectV2ItemById (it may already exist).
             If the next step fails, verify the item exists in the project.
-        """).strip())
+        """).strip()
+        )
 
     # If we didn’t get the item id, we can’t query item(id: ...). In practice, addProjectV2ItemById
-    # returns one even for repeats—but if it didn’t, we’ll stop here with a soft success and instructions.
+    # returns one even for repeats—but if it didn't, we'll stop here with a soft
+    # success and instructions.
     if not item_id:
         print("[soft-exit] Item presence attempted; nothing else to update. Exiting 0.")
         return 0
