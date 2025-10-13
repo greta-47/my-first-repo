@@ -80,7 +80,7 @@ def get_project_id() -> str:
         title = proj.get("title", "<untitled>")
         print(f"✓ Resolved project: {title} (ID: {project_id})")
         return project_id
-    except Exception as e:  # noqa: BLE001
+    except (KeyError, TypeError, ValueError) as e:  # noqa: BLE001
         print(f"ERROR: could not resolve Project ID for {owner} #{number}: {e}", file=sys.stderr)
         print(json.dumps(data, indent=2), file=sys.stderr)
         sys.exit(1)
@@ -252,9 +252,6 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
-    repo_owner = repo_owner or ""
-    repo_name = repo_name or ""
-    issue_number = issue_number or ""
 
     print(f"Syncing issue/PR #{issue_number} from {repo_owner}/{repo_name}")
     if issue_url:
