@@ -327,24 +327,6 @@ def main():
         """).strip()
         )
 
-    # If we didn’t get the item id, we can’t query item(id: ...). In practice, addProjectV2ItemById
-    # returns one even for repeats—but if it didn't, we'll stop here with a soft
-    # success and instructions.
-    if not item_id:
-        print("[soft-exit] Item presence attempted; nothing else to update. Exiting 0.")
-        return 0
-
-    # Fetch and parse field values
-    item = fetch_item_fields(client, project_id, item_id)
-    parsed = parse_project_item_field_values(item)
-
-    # Print a compact summary to logs (useful for debugging)
-    print("[fields/by_name]")
-    for k, v in parsed["by_name"].items():
-        print(f"  - {k}: {json.dumps(v, ensure_ascii=False)}")
-
-    # If you have business rules to set fields, this is where you’d apply them.
-
     return 0
 
 
