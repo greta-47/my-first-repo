@@ -1,12 +1,17 @@
 import os
 from logging.config import fileConfig
+from typing import Optional
 
 from sqlalchemy import engine_from_config, pool
 
-from alembic import context
+from alembic import context  # type: ignore[attr-defined]
 
 config = context.config
-fileConfig(config.config_file_name)
+
+cfg_path: Optional[str] = None
+if config is not None and getattr(config, "config_file_name", None):
+    cfg_path = str(config.config_file_name)
+    fileConfig(cfg_path)  # type: ignore[arg-type]
 
 target_metadata = None
 try:
