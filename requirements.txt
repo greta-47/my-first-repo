@@ -8,3 +8,4 @@ certifi==2025.10.5
 SQLAlchemy==2.0.44
 alembic==1.17.0
 psycopg2-binary==2.9.11
+python-jose[cryptography]==3.3.0
