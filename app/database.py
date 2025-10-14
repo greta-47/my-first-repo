@@ -4,7 +4,12 @@ from sqlalchemy import Boolean, Column, Float, Integer, MetaData, String, Table,
 from sqlalchemy.orm import sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/recoveryos")
-engine = create_engine(DATABASE_URL)
+
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 metadata = MetaData()
