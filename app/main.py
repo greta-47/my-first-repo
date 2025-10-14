@@ -4,8 +4,10 @@ import hashlib
 import json
 import logging
 import os
+import subprocess
 import time
 from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, Deque, Dict, List, Literal, Optional, Tuple, TypedDict
@@ -543,7 +545,24 @@ def generate_troubleshoot_steps(
 
 
 APP_VERSION = os.getenv("APP_VERSION", "0.0.1")
-app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION)
+
+
+@asynccontextmanager
+async def lifespan(app_: FastAPI):
+    db_auto = os.getenv("DB_AUTO_MIGRATE", "false").lower() == "true"
+    strict = os.getenv("STRICT_STARTUP", "false").lower() == "true"
+    if db_auto:
+        try:
+            subprocess.run(["alembic", "upgrade", "head"], check=True)
+        except Exception:
+            if strict:
+                raise
+            else:
+                pass
+    yield
+
+
+app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION, lifespan=lifespan)
 
 
 @app.middleware("http")
