@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shutil
 import subprocess
 import time
 from collections import defaultdict, deque
@@ -566,13 +567,19 @@ async def lifespan(app_: FastAPI):
     logger.info("Database tables created/verified")
 
     if settings.db_auto_migrate:
-        try:
-            subprocess.run(["/home/ubuntu/.local/bin/alembic", "upgrade", "head"], check=True)
-            logger.info("Database migrations applied")
-        except Exception as e:
-            logger.warning(f"Migration failed: {e}")
+        alembic_cmd = shutil.which("alembic")
+        if not alembic_cmd:
+            logger.error("alembic command not found in PATH")
             if settings.strict_startup:
-                raise
+                raise RuntimeError("alembic not found in PATH, cannot run migrations")
+        else:
+            try:
+                subprocess.run([alembic_cmd, "upgrade", "head"], check=True)
+                logger.info("Database migrations applied")
+            except Exception as e:
+                logger.warning(f"Migration failed: {e}")
+                if settings.strict_startup:
+                    raise
     yield
 
 
