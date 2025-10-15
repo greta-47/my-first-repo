@@ -38,6 +38,8 @@ checkins_table = Table(
 
 
 def create_tables():
+    """Create all tables. Uses the current global engine reference."""
+    global engine
     metadata.create_all(bind=engine)
 
 
