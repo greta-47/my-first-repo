@@ -3,19 +3,36 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
+import shutil
 import subprocess
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, Deque, Dict, List, Literal, Optional, Tuple, TypedDict
+from typing import (
+    Awaitable,
+    Callable,
+    Deque,
+    Dict,
+    Generator,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    TypedDict,
+)
 
-from fastapi import FastAPI, Request, Response, status
+from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import insert, select
+from sqlalchemy.orm import Session
 from starlette.responses import Response as StarletteResponse
+
+from app.database import SessionLocal, checkins_table, consents_table, create_tables, engine
+from app.settings import settings
+from app.users import router as users_router
 
 APP_START_TS = time.time()
 
@@ -26,21 +43,12 @@ def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# -----------------------------
-# Secure, PHI/PII-safe logging
-# -----------------------------
-
-# Optional (OFF by default): route exception stacks to Sentry WITHOUT leaking them into JSON logs.
-SENTRY_DSN = os.getenv("SENTRY_DSN")
-LOG_STACKS_TO_SENTRY = os.getenv("LOG_STACKS_TO_SENTRY", "false").lower() == "true"
-if SENTRY_DSN and LOG_STACKS_TO_SENTRY:
+if settings.sentry_dsn and settings.log_stacks_to_sentry:
     try:
         import sentry_sdk  # type: ignore[import-untyped]
 
-        # Keep lightweight: no performance tracing; error-only.
-        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)  # type: ignore
+        sentry_sdk.init(dsn=settings.sentry_dsn.get_secret_value(), traces_sample_rate=0.0)  # type: ignore
     except Exception:
-        # Never let observability break the app.
         pass
 
 
@@ -97,8 +105,14 @@ class InMemoryRateLimiter:
 
 
 RATE_LIMIT = InMemoryRateLimiter(RateLimitConfig())
-CONSENTS: Dict[str, "ConsentRecord"] = {}
-CHECKINS: Dict[str, List["CheckIn"]] = defaultdict(list)
+
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 def anon_key(ip: str, ua: str) -> str:
@@ -544,25 +558,33 @@ def generate_troubleshoot_steps(
     )
 
 
-APP_VERSION = os.getenv("APP_VERSION", "0.0.1")
+APP_VERSION = settings.app_version
 
 
 @asynccontextmanager
 async def lifespan(app_: FastAPI):
-    db_auto = os.getenv("DB_AUTO_MIGRATE", "false").lower() == "true"
-    strict = os.getenv("STRICT_STARTUP", "false").lower() == "true"
-    if db_auto:
-        try:
-            subprocess.run(["alembic", "upgrade", "head"], check=True)
-        except Exception:
-            if strict:
-                raise
-            else:
-                pass
+    create_tables()
+    logger.info("Database tables created/verified")
+
+    if settings.db_auto_migrate:
+        alembic_cmd = shutil.which("alembic")
+        if not alembic_cmd:
+            logger.error("alembic command not found in PATH")
+            if settings.strict_startup:
+                raise RuntimeError("alembic not found in PATH, cannot run migrations")
+        else:
+            try:
+                subprocess.run([alembic_cmd, "upgrade", "head"], check=True)
+                logger.info("Database migrations applied")
+            except Exception as e:
+                logger.warning(f"Migration failed: {e}")
+                if settings.strict_startup:
+                    raise
     yield
 
 
 app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION, lifespan=lifespan)
+app.include_router(users_router)
 
 
 @app.middleware("http")
@@ -598,14 +620,17 @@ async def readyz() -> JSONResponse:
 
 @app.get("/metrics")
 async def metrics() -> PlainTextResponse:
-    # Minimal metrics, no high-cardinality labels, no IP/UA exposure.
+    stmt = select(checkins_table)
+    with engine.connect() as conn:
+        checkins_count = len(conn.execute(stmt).fetchall())
+
     lines = [
         "# HELP app_uptime_seconds Application uptime in seconds",
         "# TYPE app_uptime_seconds gauge",
         f"app_uptime_seconds {int(time.time() - APP_START_TS)}",
         "# HELP app_checkins_total Total check-ins received",
         "# TYPE app_checkins_total counter",
-        f"app_checkins_total {sum(len(v) for v in CHECKINS.values())}",
+        f"app_checkins_total {checkins_count}",
     ]
     return PlainTextResponse("\n".join(lines))
 
@@ -628,22 +653,35 @@ def version() -> dict:
 
 
 @app.post("/consents", response_model=ConsentRecord)
-async def post_consents(payload: ConsentPayload) -> ConsentRecord:
+async def post_consents(payload: ConsentPayload, db: Session = Depends(get_db)) -> ConsentRecord:
     rec = ConsentRecord(
         user_id=payload.user_id,
         terms_version=payload.terms_version,
         accepted=payload.accepted,
         recorded_at=iso_now(),
     )
-    CONSENTS[payload.user_id] = rec
+
+    stmt = insert(consents_table).values(
+        user_id=rec.user_id,
+        terms_version=rec.terms_version,
+        accepted=rec.accepted,
+        recorded_at=rec.recorded_at,
+    )
+    with engine.connect() as conn:
+        conn.execute(stmt)
+        conn.commit()
+
     logger.info("consent_recorded")
     return rec
 
 
 @app.get("/consents/{user_id}", response_model=ConsentRecord)
-async def get_consents(user_id: str):
-    c = CONSENTS.get(user_id)
-    if not c:
+async def get_consents(user_id: str, db: Session = Depends(get_db)):
+    stmt = select(consents_table).where(consents_table.c.user_id == user_id)
+    with engine.connect() as conn:
+        result = conn.execute(stmt).fetchone()
+
+    if not result:
         return create_error_response(
             error_type="not-found",
             title="Consent Record Not Found",
@@ -651,13 +689,53 @@ async def get_consents(user_id: str):
             code="E_CONSENT_NOT_FOUND",
             status_code=404,
         )
-    return c
+
+    return ConsentRecord(
+        user_id=result.user_id,
+        terms_version=result.terms_version,
+        accepted=result.accepted,
+        recorded_at=result.recorded_at,
+    )
 
 
 @app.post("/check-in", response_model=CheckInResponse)
-async def check_in(payload: CheckIn, response: Response) -> CheckInResponse:
-    CHECKINS[payload.user_id].append(payload)
-    history = CHECKINS[payload.user_id]
+async def check_in(
+    payload: CheckIn, response: Response, db: Session = Depends(get_db)
+) -> CheckInResponse:
+    stmt = insert(checkins_table).values(
+        user_id=payload.user_id,
+        adherence=payload.adherence,
+        mood_trend=payload.mood_trend,
+        cravings=payload.cravings,
+        sleep_hours=payload.sleep_hours,
+        isolation=payload.isolation,
+        ts=payload.ts,
+    )
+    with engine.connect() as conn:
+        conn.execute(stmt)
+        conn.commit()
+
+    history_stmt = (
+        select(checkins_table)
+        .where(checkins_table.c.user_id == payload.user_id)
+        .order_by(checkins_table.c.ts)
+    )
+    with engine.connect() as conn:
+        history_rows = conn.execute(history_stmt).fetchall()
+
+    history = [
+        CheckIn(
+            user_id=row.user_id,
+            adherence=row.adherence,
+            mood_trend=row.mood_trend,
+            cravings=row.cravings,
+            sleep_hours=row.sleep_hours,
+            isolation=row.isolation,
+            ts=row.ts,
+        )
+        for row in history_rows
+    ]
+
     if len(history) < 3:
         logger.info("insufficient_data")
         return CheckInResponse(state="insufficient_data")
@@ -673,7 +751,6 @@ async def check_in(payload: CheckIn, response: Response) -> CheckInResponse:
     else:
         band = "high"
 
-    # Redacted, band/score only; never log user-provided fields or identifiers.
     logger.info(
         "check_in_scored %s",
         json.dumps({"user": "redacted", "band": band, "score": score}, separators=(",", ":")),
