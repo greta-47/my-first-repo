@@ -563,8 +563,17 @@ APP_VERSION = settings.app_version
 
 @asynccontextmanager
 async def lifespan(app_: FastAPI):
-    create_tables()
-    logger.info("Database tables created/verified")
+    try:
+        create_tables()
+        logger.info("Database tables created/verified")
+    except Exception as e:
+        logger.error(f"Database table creation failed: {e}")
+        if settings.strict_startup:
+            raise RuntimeError(
+                f"Failed to create/verify database tables: {e}. "
+                "Check DATABASE_URL is correct and database is accessible."
+            ) from e
+        logger.warning("Continuing startup without database verification (strict_startup=False)")
 
     if settings.db_auto_migrate:
         alembic_cmd = shutil.which("alembic")

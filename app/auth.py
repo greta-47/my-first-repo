@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, Optional
 
 import httpx
@@ -15,9 +16,13 @@ security = HTTPBearer(auto_error=False)
 class JWTValidator:
     def __init__(self):
         self._public_keys: Optional[Dict[str, Any]] = None
+        self._keys_cached_at: float = 0.0
 
     async def get_public_keys(self) -> Dict[str, Any]:
-        if self._public_keys is not None:
+        now = time.time()
+        cache_age = now - self._keys_cached_at
+
+        if self._public_keys is not None and cache_age < settings.jwt_keys_cache_ttl:
             return self._public_keys
 
         if not settings.jwt_public_keys_url:
@@ -29,6 +34,7 @@ class JWTValidator:
                 response.raise_for_status()
                 jwks = response.json()
                 self._public_keys = {key["kid"]: key for key in jwks.get("keys", [])}
+                self._keys_cached_at = now
                 return self._public_keys
         except Exception:
             return {}
@@ -68,6 +74,25 @@ jwt_validator = JWTValidator()
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> Dict[str, Any]:
+    """
+    Get the current authenticated user from JWT token.
+
+    Security Behavior:
+    - When JWT validation is not configured (jwt_public_keys_url is None):
+      Returns anonymous user for development/testing environments only.
+      In production, always configure JWT validation to enforce authentication.
+    - When JWT validation is configured but no credentials provided:
+      Raises 401 Unauthorized exception.
+    - When credentials are provided:
+      Validates token and returns authenticated user information.
+
+    Returns:
+        Dict containing user_id, email (optional), authenticated status, and payload.
+
+    Raises:
+        HTTPException: 401 if credentials missing or invalid when JWT is configured.
+        HTTPException: 503 if JWT validation service is unavailable.
+    """
     if not settings.jwt_public_keys_url:
         return {"user_id": "anonymous", "authenticated": False}
 
