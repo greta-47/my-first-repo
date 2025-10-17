@@ -145,6 +145,20 @@ def test_consents_roundtrip(client):
     assert getr.json()["accepted"] is True
 
 
+def test_metrics_endpoint_format_and_prometheus_compliance(client):
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    text = r.text
+
+    assert "# HELP app_uptime_seconds Application uptime in seconds" in text
+    assert "# TYPE app_uptime_seconds gauge" in text
+    assert "app_uptime_seconds " in text
+
+    assert "# HELP app_checkins_total Total check-ins received" in text
+    assert "# TYPE app_checkins_total counter" in text
+    assert "app_checkins_total " in text
+
+
 # ---- Troubleshoot tests (keep) ----
 def test_troubleshoot_valid_issue_types(client):
     valid_issues = ["login", "check-in", "consent", "network"]
