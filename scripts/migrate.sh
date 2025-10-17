@@ -11,8 +11,24 @@ fi
 
 echo "[INFO] Database URL configured (connection string redacted for security)"
 
-echo "[INFO] Testing database connectivity..."
-python3 -c "
+MAX_RETRIES=10
+RETRY_COUNT=0
+INITIAL_DELAY=2
+MAX_DELAY=10
+TOTAL_TIMEOUT=120
+START_TIME=$(date +%s)
+
+check_db_connectivity() {
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        ELAPSED=$(($(date +%s) - START_TIME))
+        if [ $ELAPSED -ge $TOTAL_TIMEOUT ]; then
+            echo "[ERROR] Database connectivity timeout after ${TOTAL_TIMEOUT}s"
+            return 1
+        fi
+
+        echo "[INFO] Testing database connectivity (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)..."
+        
+        if python3 -c "
 from sqlalchemy import create_engine, text
 import os
 import sys
@@ -23,20 +39,40 @@ try:
         result = conn.execute(text('SELECT 1'))
         result.fetchone()
     print('[INFO] Database connection successful')
+    sys.exit(0)
 except Exception as e:
-    print(f'[ERROR] Database connection failed: {e}', file=sys.stderr)
+    print(f'[WARN] Database connection failed: {e}', file=sys.stderr)
     sys.exit(1)
-"
+" 2>&1; then
+            return 0
+        fi
 
-if [ $? -ne 0 ]; then
-    echo "[ERROR] Database connectivity check failed"
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            DELAY=$((INITIAL_DELAY * (2 ** (RETRY_COUNT - 1))))
+            if [ $DELAY -gt $MAX_DELAY ]; then
+                DELAY=$MAX_DELAY
+            fi
+            JITTER=$((RANDOM % (DELAY / 2 + 1)))
+            TOTAL_DELAY=$((DELAY + JITTER))
+            
+            echo "[INFO] Retrying in ${TOTAL_DELAY}s..."
+            sleep $TOTAL_DELAY
+        fi
+    done
+
+    echo "[ERROR] Database connectivity check failed after $MAX_RETRIES attempts"
+    return 1
+}
+
+if ! check_db_connectivity; then
+    echo "[ERROR] Could not establish database connection"
     exit 1
 fi
 
 echo "[INFO] Running Alembic migrations..."
-alembic upgrade head
-
-if [ $? -eq 0 ]; then
+if alembic upgrade head; then
     echo "[SUCCESS] Migrations completed successfully at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     exit 0
 else

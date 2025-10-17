@@ -1,9 +1,10 @@
 version: '3.8'
 
 services:
-  # One-shot migration job (runs before API starts)
+  # One-shot migration job (runs before API starts, uses same image as API)
   migrate:
-    image: ghcr.io/greta-47/my-first-repo-migrate:latest
+    image: ghcr.io/greta-47/my-first-repo:latest
+    entrypoint: ["/app/scripts/migrate.sh"]
     env_file:
       - .env.prod
     environment:

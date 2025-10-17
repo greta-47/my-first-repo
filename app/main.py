@@ -607,7 +607,7 @@ async def lifespan(app_: FastAPI):
 app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION, lifespan=lifespan)
 app.include_router(users_router)
 
-if OTEL_AVAILABLE and settings.otel_exporter_otlp_endpoint:
+if OTEL_AVAILABLE and settings.enable_otel_tracing and settings.otel_exporter_otlp_endpoint:
     try:
         resource = Resource.create(
             {
@@ -648,6 +648,8 @@ if OTEL_AVAILABLE and settings.otel_exporter_otlp_endpoint:
         logger.warning(f"Failed to initialize OpenTelemetry: {e}")
 elif not OTEL_AVAILABLE:
     logger.info("OpenTelemetry not available (dependencies not installed)")
+elif not settings.enable_otel_tracing:
+    logger.info("OpenTelemetry disabled (ENABLE_OTEL_TRACING=false)")
 elif not settings.otel_exporter_otlp_endpoint:
     logger.info("OpenTelemetry disabled (OTEL_EXPORTER_OTLP_ENDPOINT not set)")
 

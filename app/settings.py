@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     rate_limit_capacity: int = Field(default=5, description="Rate limit bucket capacity")
     rate_limit_window_seconds: int = Field(default=10, description="Rate limit time window")
 
+    enable_otel_tracing: bool = Field(default=False, description="Enable OpenTelemetry tracing")
     otel_exporter_otlp_endpoint: Optional[HttpUrl] = Field(default=None)
     otel_exporter_otlp_headers: Optional[SecretStr] = Field(default=None)
     otel_service_name: str = Field(default="recoveryos-api")
