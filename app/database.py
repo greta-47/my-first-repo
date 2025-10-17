@@ -9,14 +9,15 @@ from app.settings import settings
 DATABASE_URL = os.getenv("DATABASE_URL", settings.database_url.get_secret_value())
 
 connect_args: Dict[str, Any] = {}
-engine_kwargs: Dict[str, Any] = {"connect_args": connect_args}
+engine_kwargs: Dict[str, Any] = {}
 
 if DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+    connect_args["check_same_thread"] = False
 else:
     engine_kwargs["pool_size"] = settings.db_pool_size
     engine_kwargs["max_overflow"] = settings.db_max_overflow
 
+engine_kwargs["connect_args"] = connect_args
 engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
