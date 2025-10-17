@@ -88,7 +88,7 @@ history_stmt = (
     .where(checkins_table.c.user_id == payload.user_id)
     .order_by(checkins_table.c.ts)
 )
-history_rows = db.execute(stmt).fetchall()
+history_rows = db.execute(history_stmt).fetchall()
 ```
 
 **Verified Behavior**:
