@@ -34,6 +34,18 @@ from app.database import SessionLocal, checkins_table, consents_table, create_ta
 from app.settings import settings
 from app.users import router as users_router
 
+try:
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+
 APP_START_TS = time.time()
 
 MAX_ERROR_MESSAGE_LENGTH = 100
@@ -594,6 +606,44 @@ async def lifespan(app_: FastAPI):
 
 app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION, lifespan=lifespan)
 app.include_router(users_router)
+
+if OTEL_AVAILABLE and settings.otel_exporter_otlp_endpoint:
+    try:
+        resource = Resource.create(
+            {
+                "service.name": settings.otel_service_name,
+                "service.version": APP_VERSION,
+                "deployment.environment": settings.app_env,
+            }
+        )
+
+        tracer_provider = TracerProvider(resource=resource)
+        trace.set_tracer_provider(tracer_provider)
+
+        otlp_exporter = OTLPSpanExporter(
+            endpoint=str(settings.otel_exporter_otlp_endpoint),
+        )
+        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+
+        FastAPIInstrumentor.instrument_app(app)
+
+        logger.info(
+            "opentelemetry_enabled %s",
+            json.dumps(
+                {
+                    "service": settings.otel_service_name,
+                    "endpoint": str(settings.otel_exporter_otlp_endpoint),
+                    "sample_rate": settings.traces_sample_rate,
+                },
+                separators=(",", ":"),
+            ),
+        )
+    except Exception as e:
+        logger.warning(f"Failed to initialize OpenTelemetry: {e}")
+elif not OTEL_AVAILABLE:
+    logger.info("OpenTelemetry not available (dependencies not installed)")
+elif not settings.otel_exporter_otlp_endpoint:
+    logger.info("OpenTelemetry disabled (OTEL_EXPORTER_OTLP_ENDPOINT not set)")
 
 
 @app.middleware("http")

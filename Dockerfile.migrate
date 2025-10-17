@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1.7
+
+#############################################
+# RecoveryOS Migration Job Container
+# Runs Alembic migrations before API startup
+# Used for one-shot Kubernetes Job or init container
+#############################################
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONFAULTHANDLER=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install only required runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python dependencies (minimal for migrations only)
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code (needed for alembic env.py and database.py)
+COPY app/ /app/app/
+COPY alembic/ /app/alembic/
+COPY alembic.ini /app/alembic.ini
+COPY scripts/migrate.sh /app/migrate.sh
+
+# Make migration script executable
+RUN chmod +x /app/migrate.sh
+
+# Run as non-root user
+RUN useradd -m -u 10001 migrate && chown -R migrate:migrate /app
+USER migrate
+
+# Entry point runs the migration script
+ENTRYPOINT ["/app/migrate.sh"]
