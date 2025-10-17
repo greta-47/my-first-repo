@@ -1,4 +1,5 @@
 import os
+from typing import Any, Dict
 
 from sqlalchemy import Boolean, Column, Float, Integer, MetaData, String, Table, create_engine
 from sqlalchemy.orm import sessionmaker
@@ -7,8 +8,8 @@ from app.settings import settings
 
 DATABASE_URL = os.getenv("DATABASE_URL", settings.database_url.get_secret_value())
 
-connect_args = {}
-engine_kwargs = {"connect_args": connect_args}
+connect_args: Dict[str, Any] = {}
+engine_kwargs: Dict[str, Any] = {"connect_args": connect_args}
 
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
