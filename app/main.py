@@ -30,7 +30,7 @@ from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 from starlette.responses import Response as StarletteResponse
 
-from app.database import SessionLocal, checkins_table, consents_table, create_tables, engine
+from app.database import SessionLocal, checkins_table, consents_table, create_tables
 from app.settings import settings
 from app.users import router as users_router
 
@@ -619,10 +619,9 @@ async def readyz() -> JSONResponse:
 
 
 @app.get("/metrics")
-async def metrics() -> PlainTextResponse:
+async def metrics(db: Session = Depends(get_db)) -> PlainTextResponse:
     stmt = select(checkins_table)
-    with engine.connect() as conn:
-        checkins_count = len(conn.execute(stmt).fetchall())
+    checkins_count = len(db.execute(stmt).fetchall())
 
     lines = [
         "# HELP app_uptime_seconds Application uptime in seconds",
@@ -667,9 +666,8 @@ async def post_consents(payload: ConsentPayload, db: Session = Depends(get_db)) 
         accepted=rec.accepted,
         recorded_at=rec.recorded_at,
     )
-    with engine.connect() as conn:
-        conn.execute(stmt)
-        conn.commit()
+    db.execute(stmt)
+    db.commit()
 
     logger.info("consent_recorded")
     return rec
@@ -678,8 +676,7 @@ async def post_consents(payload: ConsentPayload, db: Session = Depends(get_db)) 
 @app.get("/consents/{user_id}", response_model=ConsentRecord)
 async def get_consents(user_id: str, db: Session = Depends(get_db)):
     stmt = select(consents_table).where(consents_table.c.user_id == user_id)
-    with engine.connect() as conn:
-        result = conn.execute(stmt).fetchone()
+    result = db.execute(stmt).fetchone()
 
     if not result:
         return create_error_response(
@@ -711,17 +708,15 @@ async def check_in(
         isolation=payload.isolation,
         ts=payload.ts,
     )
-    with engine.connect() as conn:
-        conn.execute(stmt)
-        conn.commit()
+    db.execute(stmt)
+    db.commit()
 
     history_stmt = (
         select(checkins_table)
         .where(checkins_table.c.user_id == payload.user_id)
         .order_by(checkins_table.c.ts)
     )
-    with engine.connect() as conn:
-        history_rows = conn.execute(history_stmt).fetchall()
+    history_rows = db.execute(history_stmt).fetchall()
 
     history = [
         CheckIn(
