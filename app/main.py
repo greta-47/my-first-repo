@@ -620,8 +620,14 @@ if OTEL_AVAILABLE and settings.otel_exporter_otlp_endpoint:
         tracer_provider = TracerProvider(resource=resource)
         trace.set_tracer_provider(tracer_provider)
 
+        headers = None
+        if settings.otel_exporter_otlp_headers:
+            headers_str = settings.otel_exporter_otlp_headers.get_secret_value()
+            headers = dict(h.split("=", 1) for h in headers_str.split(",") if "=" in h)
+
         otlp_exporter = OTLPSpanExporter(
             endpoint=str(settings.otel_exporter_otlp_endpoint),
+            headers=headers,
         )
         tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
 

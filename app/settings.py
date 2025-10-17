@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = Field(default=10, description="Rate limit time window")
 
     otel_exporter_otlp_endpoint: Optional[HttpUrl] = Field(default=None)
+    otel_exporter_otlp_headers: Optional[SecretStr] = Field(default=None)
     otel_service_name: str = Field(default="recoveryos-api")
     traces_sample_rate: float = Field(default=0.05, ge=0.0, le=1.0)
     metrics_enabled: bool = Field(default=True)
