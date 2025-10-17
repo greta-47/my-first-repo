@@ -26,7 +26,7 @@ from typing import (
 from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 from starlette.responses import Response as StarletteResponse
 
@@ -620,8 +620,11 @@ async def readyz() -> JSONResponse:
 
 @app.get("/metrics")
 async def metrics(db: Session = Depends(get_db)) -> PlainTextResponse:
-    stmt = select(checkins_table)
-    checkins_count = len(db.execute(stmt).fetchall())
+    checkins_stmt = select(func.count()).select_from(checkins_table)
+    checkins_count = db.execute(checkins_stmt).scalar()
+
+    consents_stmt = select(func.count()).select_from(consents_table)
+    consents_count = db.execute(consents_stmt).scalar()
 
     lines = [
         "# HELP app_uptime_seconds Application uptime in seconds",
@@ -630,6 +633,9 @@ async def metrics(db: Session = Depends(get_db)) -> PlainTextResponse:
         "# HELP app_checkins_total Total check-ins received",
         "# TYPE app_checkins_total counter",
         f"app_checkins_total {checkins_count}",
+        "# HELP app_consents_total Total consents recorded",
+        "# TYPE app_consents_total counter",
+        f"app_consents_total {consents_count}",
     ]
     return PlainTextResponse("\n".join(lines))
 
