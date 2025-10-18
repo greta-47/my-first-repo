@@ -657,6 +657,7 @@ elif not settings.enable_otel_tracing:
 elif not settings.otel_exporter_otlp_endpoint:
     logger.info("OpenTelemetry disabled (OTEL_EXPORTER_OTLP_ENDPOINT not set)")
 
+
 @app.middleware("http")
 async def rate_limit_middleware(
     request: Request,
