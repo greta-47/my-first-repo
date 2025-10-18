@@ -4,11 +4,11 @@ from typing import Dict, Generator, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import Column, Integer, String, Table, insert, select
+from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.database import SessionLocal, engine, metadata, users_table
+from app.database import SessionLocal, engine, users_table
 
 router = APIRouter(prefix="/users", tags=["users"])
 
