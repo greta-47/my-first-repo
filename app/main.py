@@ -32,7 +32,6 @@ from starlette.responses import Response as StarletteResponse
 
 from app.database import SessionLocal, checkins_table, consents_table, create_tables
 from app.settings import settings
-from app.users import router as users_router
 
 try:
     from opentelemetry import trace
@@ -605,7 +604,6 @@ async def lifespan(app_: FastAPI):
 
 
 app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION, lifespan=lifespan)
-app.include_router(users_router)
 
 if OTEL_AVAILABLE and settings.enable_otel_tracing and settings.otel_exporter_otlp_endpoint:
     try:
