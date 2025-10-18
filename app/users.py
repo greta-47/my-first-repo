@@ -8,19 +8,9 @@ from sqlalchemy import Column, Integer, String, Table, insert, select
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.database import SessionLocal, engine, metadata
+from app.database import SessionLocal, engine, metadata, users_table
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-users_table = Table(
-    "users",
-    metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("email", String, unique=True, nullable=False),
-    Column("full_name", String, nullable=True),
-    Column("created_at", String, nullable=False),
-    Column("is_active", Integer, default=1, nullable=False),
-)
 
 
 class UserCreate(BaseModel):

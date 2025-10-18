@@ -34,6 +34,16 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 metadata = MetaData()
 
+users_table = Table(
+    "users",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("email", String, nullable=False, unique=True),
+    Column("full_name", String, nullable=True),
+    Column("created_at", String, nullable=False),
+    Column("is_active", Integer, nullable=False, server_default="1"),
+)
+
 consents_table = Table(
     "consents",
     metadata,
