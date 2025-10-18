@@ -30,7 +30,9 @@ from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 from starlette.responses import Response as StarletteResponse
 
+from app.agents import AgentOrchestrator
 from app.database import SessionLocal, checkins_table, consents_table, create_tables, engine
+from app.patterns_analyst import CheckInData
 from app.settings import settings
 from app.users import router as users_router
 
@@ -586,6 +588,9 @@ async def lifespan(app_: FastAPI):
 app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION, lifespan=lifespan)
 app.include_router(users_router)
 
+# Initialize agent orchestrator
+agent_orchestrator = AgentOrchestrator()
+
 
 @app.middleware("http")
 async def rate_limit_middleware(
@@ -826,3 +831,75 @@ async def troubleshoot(payload: TroubleshootPayload) -> TroubleshootResponse:
             ],
             additional_resources=["Support available during business hours"],
         )
+
+
+@app.post("/analyze-risk")
+async def analyze_risk(user_id: str, db: Session = Depends(get_db)) -> JSONResponse:
+    """
+    Analyze check-in history using Patterns Analyst agent.
+
+    Returns structured risk assessment with signals, reason codes, and confidence scores.
+    All decisions are logged to audit_log table.
+    """
+    history_stmt = (
+        select(checkins_table)
+        .where(checkins_table.c.user_id == user_id)
+        .order_by(checkins_table.c.ts)
+    )
+
+    with engine.connect() as conn:
+        history_rows = conn.execute(history_stmt).fetchall()
+
+    if not history_rows:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "status": "error",
+                "error": {
+                    "type": "https://recoveryos.org/errors/not-found",
+                    "title": "No Check-ins Found",
+                    "detail": f"No check-in history found for user_id: {user_id}",
+                    "code": "E_NO_CHECKINS",
+                },
+            },
+        )
+
+    checkin_history = [
+        CheckInData(
+            user_id=row.user_id,
+            adherence=row.adherence,
+            mood_trend=row.mood_trend,
+            cravings=row.cravings,
+            sleep_hours=row.sleep_hours,
+            isolation=row.isolation,
+            ts=row.ts,
+        )
+        for row in history_rows
+    ]
+
+    analysis = agent_orchestrator.analyze_check_in(user_id, checkin_history)
+
+    logger.info(
+        "agent_analysis_complete %s",
+        json.dumps(
+            {
+                "user": "redacted",
+                "risk_band": analysis["risk_band"],
+                "signals_count": len(analysis["signals"]),
+                "confidence": analysis["confidence"],
+            },
+            separators=(",", ":"),
+        ),
+    )
+
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "data": analysis,
+            "meta": {
+                "timestamp": iso_now(),
+                "agent": "patterns_analyst",
+                "version": APP_VERSION,
+            },
+        }
+    )
