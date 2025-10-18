@@ -24,13 +24,6 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=10, description="Database connection pool size")
     db_max_overflow: int = Field(default=20, description="Database pool overflow")
 
-    jwt_public_keys_url: Optional[HttpUrl] = Field(default=None, description="JWKS endpoint URL")
-    jwt_algorithm: str = Field(default="RS256", description="JWT signature algorithm")
-    jwt_keys_cache_ttl: int = Field(
-        default=3600, description="JWT public keys cache TTL in seconds"
-    )
-    session_secret: Optional[SecretStr] = Field(default=None, description="Session encryption key")
-
     rate_limit_capacity: int = Field(default=5, description="Rate limit bucket capacity")
     rate_limit_window_seconds: int = Field(default=10, description="Rate limit time window")
 
@@ -41,18 +34,11 @@ class Settings(BaseSettings):
     traces_sample_rate: float = Field(default=0.05, ge=0.0, le=1.0)
     metrics_enabled: bool = Field(default=True)
 
-    sms_provider: str = Field(default="twilio", description="SMS provider name")
-    twilio_account_sid: Optional[SecretStr] = Field(default=None)
-    twilio_auth_token: Optional[SecretStr] = Field(default=None)
-    twilio_messaging_service_sid: Optional[str] = Field(default=None)
-
     risk_model_version: str = Field(default="v0.1.0")
     risk_grace_days: int = Field(default=3, description="Days before risk scoring starts")
     risk_bands: str = Field(default="0-29,30-54,55-74,75-100", description="Risk band thresholds")
 
-    enable_family_sharing: bool = Field(default=False)
     enable_crisis_alerts: bool = Field(default=True)
-    enable_sms_notifications: bool = Field(default=False)
 
     sentry_dsn: Optional[SecretStr] = Field(
         default=None, description="Sentry DSN for error tracking"
