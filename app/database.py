@@ -1,4 +1,5 @@
 import os
+from typing import Any, Dict
 
 from sqlalchemy import (
     Boolean,
@@ -14,13 +15,21 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/recoveryos")
+from app.settings import settings
 
-connect_args = {}
+DATABASE_URL = os.getenv("DATABASE_URL", settings.database_url.get_secret_value())
+
+connect_args: Dict[str, Any] = {}
+engine_kwargs: Dict[str, Any] = {}
+
 if DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+    connect_args["check_same_thread"] = False
+else:
+    engine_kwargs["pool_size"] = settings.db_pool_size
+    engine_kwargs["max_overflow"] = settings.db_max_overflow
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine_kwargs["connect_args"] = connect_args
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 metadata = MetaData()
@@ -134,6 +143,8 @@ audit_log_table = Table(
 
 
 def create_tables():
+    """Create all tables. Uses the current global engine reference."""
+    global engine
     metadata.create_all(bind=engine)
 
 

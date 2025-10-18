@@ -26,7 +26,7 @@ from typing import (
 from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 from starlette.responses import Response as StarletteResponse
 
@@ -35,6 +35,18 @@ from app.database import SessionLocal, checkins_table, consents_table, create_ta
 from app.patterns_analyst import CheckInData
 from app.settings import settings
 from app.users import router as users_router
+
+try:
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
 
 APP_START_TS = time.time()
 
@@ -565,8 +577,17 @@ APP_VERSION = settings.app_version
 
 @asynccontextmanager
 async def lifespan(app_: FastAPI):
-    create_tables()
-    logger.info("Database tables created/verified")
+    try:
+        create_tables()
+        logger.info("Database tables created/verified")
+    except Exception as e:
+        logger.error(f"Database table creation failed: {e}")
+        if settings.strict_startup:
+            raise RuntimeError(
+                f"Failed to create/verify database tables: {e}. "
+                "Check DATABASE_URL is correct and database is accessible."
+            ) from e
+        logger.warning("Continuing startup without database verification (strict_startup=False)")
 
     if settings.db_auto_migrate:
         alembic_cmd = shutil.which("alembic")
@@ -588,9 +609,53 @@ async def lifespan(app_: FastAPI):
 app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION, lifespan=lifespan)
 app.include_router(users_router)
 
-# Initialize agent orchestrator
 agent_orchestrator = AgentOrchestrator()
 
+if OTEL_AVAILABLE and settings.enable_otel_tracing and settings.otel_exporter_otlp_endpoint:
+    try:
+        resource = Resource.create(
+            {
+                "service.name": settings.otel_service_name,
+                "service.version": APP_VERSION,
+                "deployment.environment": settings.app_env,
+            }
+        )
+
+        tracer_provider = TracerProvider(resource=resource)
+        trace.set_tracer_provider(tracer_provider)
+
+        headers = None
+        if settings.otel_exporter_otlp_headers:
+            headers_str = settings.otel_exporter_otlp_headers.get_secret_value()
+            headers = dict(h.split("=", 1) for h in headers_str.split(",") if "=" in h)
+
+        otlp_exporter = OTLPSpanExporter(
+            endpoint=str(settings.otel_exporter_otlp_endpoint),
+            headers=headers,
+        )
+        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+
+        FastAPIInstrumentor.instrument_app(app)
+
+        logger.info(
+            "opentelemetry_enabled %s",
+            json.dumps(
+                {
+                    "service": settings.otel_service_name,
+                    "endpoint": str(settings.otel_exporter_otlp_endpoint),
+                    "sample_rate": settings.traces_sample_rate,
+                },
+                separators=(",", ":"),
+            ),
+        )
+    except Exception as e:
+        logger.warning(f"Failed to initialize OpenTelemetry: {e}")
+elif not OTEL_AVAILABLE:
+    logger.info("OpenTelemetry not available (dependencies not installed)")
+elif not settings.enable_otel_tracing:
+    logger.info("OpenTelemetry disabled (ENABLE_OTEL_TRACING=false)")
+elif not settings.otel_exporter_otlp_endpoint:
+    logger.info("OpenTelemetry disabled (OTEL_EXPORTER_OTLP_ENDPOINT not set)")
 
 @app.middleware("http")
 async def rate_limit_middleware(
@@ -624,10 +689,12 @@ async def readyz() -> JSONResponse:
 
 
 @app.get("/metrics")
-async def metrics() -> PlainTextResponse:
-    stmt = select(checkins_table)
-    with engine.connect() as conn:
-        checkins_count = len(conn.execute(stmt).fetchall())
+async def metrics(db: Session = Depends(get_db)) -> PlainTextResponse:
+    checkins_stmt = select(func.count()).select_from(checkins_table)
+    checkins_count = db.execute(checkins_stmt).scalar()
+
+    consents_stmt = select(func.count()).select_from(consents_table)
+    consents_count = db.execute(consents_stmt).scalar()
 
     lines = [
         "# HELP app_uptime_seconds Application uptime in seconds",
@@ -636,6 +703,9 @@ async def metrics() -> PlainTextResponse:
         "# HELP app_checkins_total Total check-ins received",
         "# TYPE app_checkins_total counter",
         f"app_checkins_total {checkins_count}",
+        "# HELP app_consents_total Total consents recorded",
+        "# TYPE app_consents_total counter",
+        f"app_consents_total {consents_count}",
     ]
     return PlainTextResponse("\n".join(lines))
 
@@ -672,9 +742,8 @@ async def post_consents(payload: ConsentPayload, db: Session = Depends(get_db)) 
         accepted=rec.accepted,
         recorded_at=rec.recorded_at,
     )
-    with engine.connect() as conn:
-        conn.execute(stmt)
-        conn.commit()
+    db.execute(stmt)
+    db.commit()
 
     logger.info("consent_recorded")
     return rec
@@ -683,8 +752,7 @@ async def post_consents(payload: ConsentPayload, db: Session = Depends(get_db)) 
 @app.get("/consents/{user_id}", response_model=ConsentRecord)
 async def get_consents(user_id: str, db: Session = Depends(get_db)):
     stmt = select(consents_table).where(consents_table.c.user_id == user_id)
-    with engine.connect() as conn:
-        result = conn.execute(stmt).fetchone()
+    result = db.execute(stmt).fetchone()
 
     if not result:
         return create_error_response(
@@ -716,17 +784,15 @@ async def check_in(
         isolation=payload.isolation,
         ts=payload.ts,
     )
-    with engine.connect() as conn:
-        conn.execute(stmt)
-        conn.commit()
+    db.execute(stmt)
+    db.commit()
 
     history_stmt = (
         select(checkins_table)
         .where(checkins_table.c.user_id == payload.user_id)
         .order_by(checkins_table.c.ts)
     )
-    with engine.connect() as conn:
-        history_rows = conn.execute(history_stmt).fetchall()
+    history_rows = db.execute(history_stmt).fetchall()
 
     history = [
         CheckIn(

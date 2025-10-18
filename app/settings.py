@@ -26,12 +26,17 @@ class Settings(BaseSettings):
 
     jwt_public_keys_url: Optional[HttpUrl] = Field(default=None, description="JWKS endpoint URL")
     jwt_algorithm: str = Field(default="RS256", description="JWT signature algorithm")
+    jwt_keys_cache_ttl: int = Field(
+        default=3600, description="JWT public keys cache TTL in seconds"
+    )
     session_secret: Optional[SecretStr] = Field(default=None, description="Session encryption key")
 
     rate_limit_capacity: int = Field(default=5, description="Rate limit bucket capacity")
     rate_limit_window_seconds: int = Field(default=10, description="Rate limit time window")
 
+    enable_otel_tracing: bool = Field(default=False, description="Enable OpenTelemetry tracing")
     otel_exporter_otlp_endpoint: Optional[HttpUrl] = Field(default=None)
+    otel_exporter_otlp_headers: Optional[SecretStr] = Field(default=None)
     otel_service_name: str = Field(default="recoveryos-api")
     traces_sample_rate: float = Field(default=0.05, ge=0.0, le=1.0)
     metrics_enabled: bool = Field(default=True)

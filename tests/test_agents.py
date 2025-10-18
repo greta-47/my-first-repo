@@ -149,10 +149,10 @@ class TestPatternsAnalyst:
         """Set up test fixtures."""
         self.analyst = PatternsAnalyst()
 
-    def _create_checkin(self, days_ago: int, **kwargs) -> CheckInData:
+    def _create_checkin(self, days_ago: int, **kwargs: object) -> CheckInData:
         """Helper to create check-in with timestamp."""
         ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
-        defaults = {
+        defaults: dict[str, object] = {
             "user_id": "test_user",
             "adherence": 70,
             "mood_trend": 0,
@@ -162,7 +162,7 @@ class TestPatternsAnalyst:
             "ts": ts,
         }
         defaults.update(kwargs)
-        return CheckInData(**defaults)
+        return CheckInData(**defaults)  # type: ignore[arg-type]
 
     def test_insufficient_data(self):
         """Test that insufficient data state is returned for <3 check-ins."""
