@@ -36,6 +36,63 @@ Note: The repository pins pyenv to Python 3.12.5 for consistency across dev and 
 - **Help endpoint**: `GET /help` for API information and troubleshooting
 - **Troubleshooting guide**: See [docs/troubleshooting.md](docs/troubleshooting.md)
 
+## Deployment
+
+The app is configured for deployment to **DigitalOcean App Platform** with automatic CI/CD.
+
+### Quick Deploy
+
+```bash
+# 1. Install doctl CLI
+brew install doctl  # macOS
+
+# 2. Authenticate with DigitalOcean
+doctl auth init
+
+# 3. Create app
+doctl apps create --spec .do/app.yaml
+
+# 4. Set GitHub secrets
+gh secret set DIGITALOCEAN_ACCESS_TOKEN --repo greta-47/my-first-repo
+gh secret set DIGITALOCEAN_APP_ID --repo greta-47/my-first-repo
+
+# 5. Deploy
+git push origin main
+```
+
+### What Gets Deployed
+
+- **Docker Image**: Built from `Dockerfile` and pushed to GitHub Container Registry
+- **Database**: Managed PostgreSQL (automatically provisioned)
+- **Domain**: `recoveryos.org` (configured in app spec)
+- **SSL**: Automatic Let's Encrypt certificates
+- **Migrations**: Run automatically before each deployment
+
+### Required Secrets
+
+Configure these in GitHub repository secrets:
+
+- `DIGITALOCEAN_ACCESS_TOKEN`: Your DigitalOcean Personal Access Token
+- `DIGITALOCEAN_APP_ID`: App ID from `doctl apps create` command
+
+### Deployment Pipeline
+
+1. **Build**: Docker image built and pushed to GHCR
+2. **Deploy**: DigitalOcean App Platform pulls image and deploys
+3. **Migrate**: Database migrations run automatically
+4. **Health Check**: App Platform verifies `/healthz` endpoint
+5. **DNS**: Traffic routed to new deployment
+
+### Monitoring
+
+- **Logs**: `doctl apps logs $APP_ID --type run --follow`
+- **Status**: `doctl apps get $APP_ID`
+- **Metrics**: Available in DigitalOcean console
+
+### Complete Guide
+
+See [docs/DIGITALOCEAN-DEPLOYMENT.md](docs/DIGITALOCEAN-DEPLOYMENT.md) for detailed deployment instructions, troubleshooting, and scaling information.
+
 ## CI
 
 - Python 3.12 only. Ruff, mypy, pytest, and pip-audit (non-blocking in PR CI) run in `.github/workflows/ci.yml`.
