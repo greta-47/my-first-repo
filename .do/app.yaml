@@ -1,0 +1,103 @@
+name: recoveryos-api
+region: nyc
+
+services:
+  - name: api
+    image:
+      registry_type: GHCR
+      registry: greta-47
+      repository: my-first-repo
+      tag: latest
+    
+    health_check:
+      http_path: /healthz
+      initial_delay_seconds: 10
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    
+    http_port: 8000
+    
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    
+    envs:
+      - key: APP_ENV
+        value: production
+      - key: APP_VERSION
+        value: "1.0.0"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DEBUG
+        value: "false"
+      - key: STRICT_STARTUP
+        value: "true"
+      - key: DB_AUTO_MIGRATE
+        value: "false"
+      - key: REQUEST_LOG_REDACT
+        value: "true"
+      - key: DEIDENTIFY_DEFAULT
+        value: "true"
+      - key: RATE_LIMIT_CAPACITY
+        value: "5"
+      - key: RATE_LIMIT_WINDOW_SECONDS
+        value: "10"
+      - key: ENABLE_OTEL_TRACING
+        value: "false"
+      - key: ENABLE_FAMILY_SHARING
+        value: "false"
+      - key: ENABLE_CRISIS_ALERTS
+        value: "true"
+      - key: ENABLE_SMS_NOTIFICATIONS
+        value: "false"
+      - key: RISK_MODEL_VERSION
+        value: "v0.1.0"
+      - key: RISK_GRACE_DAYS
+        value: "3"
+      - key: RISK_BANDS
+        value: "0-29,30-54,55-74,75-100"
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        scope: RUN_TIME
+        type: SECRET
+      - key: OTEL_EXPORTER_OTLP_HEADERS
+        scope: RUN_TIME
+        type: SECRET
+      - key: SENTRY_DSN
+        scope: RUN_TIME
+        type: SECRET
+      - key: LOG_STACKS_TO_SENTRY
+        value: "false"
+
+databases:
+  - name: recoveryos-db
+    engine: PG
+    version: "16"
+    production: false
+    cluster_name: recoveryos-db-cluster
+
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    image:
+      registry_type: GHCR
+      registry: greta-47
+      repository: my-first-repo
+      tag: latest
+    
+    run_command: /app/scripts/migrate.sh
+    
+    envs:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+
+domains:
+  - domain: recoveryos.org
+    type: PRIMARY
+    zone: recoveryos.org
