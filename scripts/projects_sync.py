@@ -94,24 +94,22 @@ query($projectId: ID!) {
   node(id: $projectId) {
     ... on ProjectV2 {
       fields(first: 50) {
-  nodes {
-    ... on ProjectV2Field {
-      id
-      name
-      dataType
-    }
-    ... on ProjectV2SingleSelectField {
-      id
-      name
-      options { id name }
-    }
-    ... on ProjectV2IterationField {
-      id
-      name
-      configuration { duration startDay }
-    }
-  }
-}
+        nodes {
+          __typename
+          ... on ProjectV2FieldCommon {
+            id
+            name
+          }
+          ... on ProjectV2SingleSelectField {
+            id
+            name
+            options { id name }
+          }
+          ... on ProjectV2IterationField {
+            id
+            name
+            configuration { duration startDay }
+          }
         }
       }
     }
