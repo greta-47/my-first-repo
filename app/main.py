@@ -545,6 +545,11 @@ def generate_troubleshoot_steps(
 APP_VERSION = os.getenv("APP_VERSION", "0.0.1")
 app = FastAPI(title="Single Compassionate Loop API", version=APP_VERSION)
 
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to RecoveryOS — your AI-powered support platform!"}
+
+
 
 @app.middleware("http")
 async def rate_limit_middleware(
