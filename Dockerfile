@@ -64,6 +64,15 @@ RUN echo '#!/usr/bin/env sh' > /app/entrypoint.sh && \
     echo 'exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${WORKERS}' >> /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
+# Security hardening
+RUN chmod -R 755 /app && \
+    find /app -type f -name "*.py" -exec chmod 644 {} \;
+
+# Add production environment variables
+ENV PYTHONPATH=/app \
+    PYTHONHASHSEED=random \
+    PYTHONIOENCODING=utf-8
+
 USER appuser
 
 # Healthcheck
