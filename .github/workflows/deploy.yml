@@ -56,9 +56,11 @@ jobs:
 
       - name: Install yq
         run: |
-          wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.35.1/yq_linux_amd64
-          chmod +x /usr/local/bin/yq
-          yq --version
+          mkdir -p "$GITHUB_WORKSPACE/bin"
+          wget -qO "$GITHUB_WORKSPACE/bin/yq" https://github.com/mikefarah/yq/releases/download/v4.35.1/yq_linux_amd64
+          chmod +x "$GITHUB_WORKSPACE/bin/yq"
+          echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
+          "$GITHUB_WORKSPACE/bin/yq" --version
 
       - name: Pre-deploy sanity check
         run: |
@@ -125,15 +127,102 @@ jobs:
           # Update the app with the new image tag
           echo "Deploying image: ghcr.io/${{ github.repository }}:${{ github.sha }}"
           
-          # Update app spec with new image tag using yq
-          yq eval '.services[0].image.tag = "${{ github.sha }}" | .jobs[0].image.tag = "${{ github.sha }}"' .do/app.yaml > .do/app-deploy.yaml
+          # Update app spec with new image tag using yq (by service/job name, not index)
+          yq eval '
+            (.services[] | select(.name == "api") | .image.tag) = "${{ github.sha }}" |
+            (.jobs[] | select(.name == "migrate") | .image.tag) = "${{ github.sha }}"
+          ' .do/app.yaml > .do/app-deploy.yaml
           
-          # Deploy the updated app and capture output
+          # Post-mutation sanity check: verify mutated spec has correct image tags
+          echo "Verifying mutated app spec..."
+          
+          # Check API service image
+          API_REGISTRY_TYPE=$(yq eval '.services[] | select(.name == "api") | .image.registry_type' .do/app-deploy.yaml)
+          API_REGISTRY=$(yq eval '.services[] | select(.name == "api") | .image.registry' .do/app-deploy.yaml)
+          API_REPO=$(yq eval '.services[] | select(.name == "api") | .image.repository' .do/app-deploy.yaml)
+          API_TAG=$(yq eval '.services[] | select(.name == "api") | .image.tag' .do/app-deploy.yaml)
+          
+          if [ "$API_REGISTRY_TYPE" != "GHCR" ]; then
+            echo "Error: API service registry_type is not GHCR"
+            echo "Got: $API_REGISTRY_TYPE"
+            exit 1
+          fi
+          
+          if [ -z "$API_REGISTRY" ] || [ "$API_REGISTRY" = "null" ]; then
+            echo "Error: API service registry is empty"
+            exit 1
+          fi
+          
+          if [ -z "$API_REPO" ] || [ "$API_REPO" = "null" ]; then
+            echo "Error: API service repository is empty"
+            exit 1
+          fi
+          
+          if [ "$API_TAG" != "${{ github.sha }}" ]; then
+            echo "Error: API service image tag does not match github.sha"
+            echo "Expected: ${{ github.sha }}, Got: $API_TAG"
+            exit 1
+          fi
+          echo "✓ API service image: ghcr.io/$API_REGISTRY/$API_REPO:$API_TAG"
+          
+          # Check migrate job image
+          MIGRATE_REGISTRY_TYPE=$(yq eval '.jobs[] | select(.name == "migrate") | .image.registry_type' .do/app-deploy.yaml)
+          MIGRATE_REGISTRY=$(yq eval '.jobs[] | select(.name == "migrate") | .image.registry' .do/app-deploy.yaml)
+          MIGRATE_REPO=$(yq eval '.jobs[] | select(.name == "migrate") | .image.repository' .do/app-deploy.yaml)
+          MIGRATE_TAG=$(yq eval '.jobs[] | select(.name == "migrate") | .image.tag' .do/app-deploy.yaml)
+          
+          if [ "$MIGRATE_REGISTRY_TYPE" != "GHCR" ]; then
+            echo "Error: Migrate job registry_type is not GHCR"
+            echo "Got: $MIGRATE_REGISTRY_TYPE"
+            exit 1
+          fi
+          
+          if [ -z "$MIGRATE_REGISTRY" ] || [ "$MIGRATE_REGISTRY" = "null" ]; then
+            echo "Error: Migrate job registry is empty"
+            exit 1
+          fi
+          
+          if [ -z "$MIGRATE_REPO" ] || [ "$MIGRATE_REPO" = "null" ]; then
+            echo "Error: Migrate job repository is empty"
+            exit 1
+          fi
+          
+          if [ "$MIGRATE_TAG" != "${{ github.sha }}" ]; then
+            echo "Error: Migrate job image tag does not match github.sha"
+            echo "Expected: ${{ github.sha }}, Got: $MIGRATE_TAG"
+            exit 1
+          fi
+          echo "✓ Migrate job image: ghcr.io/$MIGRATE_REGISTRY/$MIGRATE_REPO:$MIGRATE_TAG"
+          
+          # Deploy the updated app and capture deployment ID from JSON output
           echo "Initiating deployment..."
-          DEPLOY_OUTPUT=$(doctl apps update "$APP_ID" --spec .do/app-deploy.yaml --format ID --no-header 2>&1)
+          echo "Checking jq availability..."
+          jq --version || echo "Warning: jq not found, will fall back to list-deployments"
           
-          # Extract deployment ID from the latest deployment
-          DEPLOYMENT_ID=$(doctl apps list-deployments "$APP_ID" --format ID --no-header | head -n 1)
+          DEPLOY_JSON=$(doctl apps update "$APP_ID" --spec .do/app-deploy.yaml -o json 2>&1)
+          
+          # Try to extract deployment ID from the update output
+          DEPLOYMENT_ID=$(echo "$DEPLOY_JSON" | jq -r '.active_deployment.id // .pending_deployment.id // empty' 2>/dev/null)
+          
+          # If no deployment ID from update, fall back to creating a new deployment
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "No deployment ID from update, trying create-deployment..."
+            CREATE_JSON=$(doctl apps create-deployment "$APP_ID" -o json 2>&1 || true)
+            DEPLOYMENT_ID=$(echo "$CREATE_JSON" | jq -r '.id // empty' 2>/dev/null)
+          fi
+          
+          # Final fallback: list deployments and get the latest (with retry)
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "Falling back to list-deployments..."
+            for attempt in {1..3}; do
+              sleep 2
+              DEPLOYMENT_ID=$(doctl apps list-deployments "$APP_ID" --format ID --no-header | head -n 1)
+              if [ -n "$DEPLOYMENT_ID" ]; then
+                break
+              fi
+              echo "Attempt $attempt: No deployment ID yet, retrying..."
+            done
+          fi
           
           if [ -z "$DEPLOYMENT_ID" ]; then
             echo "Error: Could not retrieve deployment ID"
