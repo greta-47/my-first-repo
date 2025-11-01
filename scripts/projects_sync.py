@@ -201,22 +201,20 @@ def add_item_to_project(project_id: str, content_id: str) -> str:
 def get_project_item_fields(project_id: str, item_id: str) -> list[dict[str, Any]]:
     """Return current single-select field values for a project item."""
     query = """
-    query($projectId: ID!, $itemId: ID!) {
-      node(id: $projectId) {
-        ... on ProjectV2 {
-          item(id: $itemId) {
-            id
-            fieldValues(first: 50) {
-              nodes {
-                __typename
-                ... on ProjectV2ItemFieldSingleSelectValue {
-                  field {
-                    __typename
-                    ... on ProjectV2SingleSelectField { id name }
-                  }
-                  optionId
-                  name
+    query($itemId: ID!) {
+      node(id: $itemId) {
+        ... on ProjectV2Item {
+          id
+          fieldValues(first: 50) {
+            nodes {
+              __typename
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                field {
+                  __typename
+                  ... on ProjectV2SingleSelectField { id name }
                 }
+                optionId
+                name
               }
             }
           }
@@ -224,8 +222,8 @@ def get_project_item_fields(project_id: str, item_id: str) -> list[dict[str, Any
       }
     }
     """
-    data = graphql_request(query, {"projectId": project_id, "itemId": item_id})
-    item = data.get("data", {}).get("node", {}).get("item")
+    data = graphql_request(query, {"itemId": item_id})
+    item = data.get("data", {}).get("node")
     return (item or {}).get("fieldValues", {}).get("nodes", []) if item else []
 
 
