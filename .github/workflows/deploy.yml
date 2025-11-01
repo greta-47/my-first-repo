@@ -52,6 +52,63 @@ jobs:
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: 1.146.0
+
+      - name: Install yq
+        run: |
+          wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.35.1/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Pre-deploy sanity check
+        run: |
+          echo "Running pre-deploy sanity checks..."
+          
+          # Check if .do/app.yaml exists
+          if [ ! -f .do/app.yaml ]; then
+            echo "Error: .do/app.yaml not found"
+            exit 1
+          fi
+          echo "✓ .do/app.yaml exists"
+          
+          # Validate YAML syntax
+          if ! yq eval '.' .do/app.yaml > /dev/null 2>&1; then
+            echo "Error: .do/app.yaml has invalid YAML syntax"
+            exit 1
+          fi
+          echo "✓ YAML syntax is valid"
+          
+          # Check service port is 8000
+          SERVICE_PORT=$(yq eval '.services[0].http_port' .do/app.yaml)
+          if [ "$SERVICE_PORT" != "8000" ]; then
+            echo "Error: Service port is $SERVICE_PORT, expected 8000"
+            exit 1
+          fi
+          echo "✓ Service port is 8000"
+          
+          # Check image registry and repository are set
+          REGISTRY=$(yq eval '.services[0].image.registry' .do/app.yaml)
+          REPOSITORY=$(yq eval '.services[0].image.repository' .do/app.yaml)
+          if [ -z "$REGISTRY" ] || [ "$REGISTRY" = "null" ]; then
+            echo "Error: Image registry not set in .do/app.yaml"
+            exit 1
+          fi
+          if [ -z "$REPOSITORY" ] || [ "$REPOSITORY" = "null" ]; then
+            echo "Error: Image repository not set in .do/app.yaml"
+            exit 1
+          fi
+          echo "✓ Image registry: $REGISTRY"
+          echo "✓ Image repository: $REPOSITORY"
+          
+          # Check migrate job exists and has correct image
+          MIGRATE_JOB=$(yq eval '.jobs[0].name' .do/app.yaml)
+          if [ "$MIGRATE_JOB" != "migrate" ]; then
+            echo "Warning: Expected migrate job, found: $MIGRATE_JOB"
+          else
+            echo "✓ Migrate job configured"
+          fi
+          
+          echo "All pre-deploy sanity checks passed!"
 
       - name: Update App Platform deployment
         run: |
@@ -68,34 +125,52 @@ jobs:
           # Update the app with the new image tag
           echo "Deploying image: ghcr.io/${{ github.repository }}:${{ github.sha }}"
           
-          # Update app spec with new image tag
-          sed "s|tag: latest|tag: ${{ github.sha }}|g" .do/app.yaml > .do/app-deploy.yaml
+          # Update app spec with new image tag using yq
+          yq eval '.services[0].image.tag = "${{ github.sha }}" | .jobs[0].image.tag = "${{ github.sha }}"' .do/app.yaml > .do/app-deploy.yaml
           
-          # Deploy the updated app
-          doctl apps update "$APP_ID" --spec .do/app-deploy.yaml
+          # Deploy the updated app and capture output
+          echo "Initiating deployment..."
+          DEPLOY_OUTPUT=$(doctl apps update "$APP_ID" --spec .do/app-deploy.yaml --format ID --no-header 2>&1)
           
-          echo "Deployment initiated. Monitor progress at:"
-          echo "https://cloud.digitalocean.com/apps/$APP_ID"
+          # Extract deployment ID from the latest deployment
+          DEPLOYMENT_ID=$(doctl apps list-deployments "$APP_ID" --format ID --no-header | head -n 1)
+          
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "Error: Could not retrieve deployment ID"
+            exit 1
+          fi
+          
+          echo "Deployment ID: $DEPLOYMENT_ID"
+          echo "DEPLOYMENT_ID=$DEPLOYMENT_ID" >> $GITHUB_ENV
+          echo "Monitor progress at: https://cloud.digitalocean.com/apps/$APP_ID"
 
       - name: Wait for deployment
         run: |
           APP_ID="${{ secrets.DIGITALOCEAN_APP_ID }}"
+          DEPLOYMENT_ID="${{ env.DEPLOYMENT_ID }}"
           
-          echo "Waiting for deployment to complete..."
-          for i in {1..30}; do
-            STATUS=$(doctl apps get "$APP_ID" --format Phase --no-header)
-            echo "Deployment status: $STATUS"
+          echo "Waiting for deployment $DEPLOYMENT_ID to complete..."
+          
+          # Poll for up to 15 minutes (90 iterations × 10 seconds)
+          for i in {1..90}; do
+            # Get the deployment phase (polls ActiveDeployment.Phase)
+            PHASE=$(doctl apps get-deployment "$APP_ID" "$DEPLOYMENT_ID" --format Phase --no-header 2>&1)
             
-            if [ "$STATUS" = "ACTIVE" ]; then
-              echo "✅ Deployment successful!"
+            echo "[$i/90] Deployment phase: $PHASE"
+            
+            if [ "$PHASE" = "ACTIVE" ]; then
+              echo "Deployment successful!"
               exit 0
-            elif [ "$STATUS" = "ERROR" ]; then
-              echo "❌ Deployment failed"
+            elif [ "$PHASE" = "ERROR" ] || [ "$PHASE" = "FAILED" ]; then
+              echo "Deployment failed with phase: $PHASE"
+              exit 1
+            elif [ "$PHASE" = "CANCELED" ] || [ "$PHASE" = "CANCELLED" ]; then
+              echo "Deployment was canceled"
               exit 1
             fi
             
             sleep 10
           done
           
-          echo "⚠️ Deployment timeout - check DigitalOcean console"
+          echo "Deployment timeout after 15 minutes - check DigitalOcean console"
           exit 1
