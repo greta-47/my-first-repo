@@ -654,6 +654,11 @@ elif not settings.otel_exporter_otlp_endpoint:
     logger.info("OpenTelemetry disabled (OTEL_EXPORTER_OTLP_ENDPOINT not set)")
 
 
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to RecoveryOS — your AI-powered support platform!"}
+
+
 @app.middleware("http")
 async def rate_limit_middleware(
     request: Request,

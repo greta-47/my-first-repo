@@ -11,7 +11,7 @@ Environment variables expected (the workflow sets these):
 - ISSUE_NUMBER        : number of the Issue/PR to sync
 - ISSUE_URL           : (optional) direct https://github.com/owner/repo/{issues|pull}/123
 - REPO_OWNER          : repository owner (workflow sets github.repository_owner)
-- REPO_NAME           : repository name (or empty; we’ll split GITHUB_REPOSITORY if needed)
+- REPO_NAME           : repository name (or empty; we'll split GITHUB_REPOSITORY if needed)
 - GITHUB_REPOSITORY   : "owner/name" (always available; used as fallback for owner/name)
 """
 
@@ -92,43 +92,69 @@ mutation($projectId: ID!, $contentId: ID!) {
 }
 """
 
-# Uses the *current* ItemFieldValue types
-Q_ITEM_FIELD_VALUES = """
-query($projectId: ID!, $itemId: ID!) {
+Q_GET_PROJECT_FIELDS = """
+query($projectId: ID!) {
   node(id: $projectId) {
     ... on ProjectV2 {
-      item(id: $itemId) {
-        id
-        fieldValues(first: 50) {
-          nodes {
-            __typename
-            ... on ProjectV2ItemFieldSingleSelectValue  { field { id name } optionId name }
-            ... on ProjectV2ItemFieldDateValue          { field { id name } value }
-            ... on ProjectV2ItemFieldTextValue          { field { id name } text }
-            ... on ProjectV2ItemFieldNumberValue        { field { id name } number }
-            ... on ProjectV2ItemFieldRepositoryValue {
-              field { id name }
-              repository { nameWithOwner }
-            }
-            ... on ProjectV2ItemFieldTitleValue         { field { id name } title }
-            ... on ProjectV2ItemFieldAssigneesValue {
-              field { id name }
-              assignees(first: 10) { nodes { login } }
-            }
-            ... on ProjectV2ItemFieldLabelValue {
-              field { id name }
-              labels(first: 10) { nodes { name } }
-            }
-            ... on ProjectV2ItemFieldMilestoneValue     { field { id name } milestone { title } }
-            ... on ProjectV2ItemFieldTrackedByValue     { field { id name } createdAt }
-            ... on ProjectV2ItemFieldPullRequestValue {
-              field { id name }
-              pullRequests(first: 10) { nodes { number title } }
-            }
+      fields(first: 50) {
+        nodes {
+          __typename
+          ... on ProjectV2FieldCommon {
+            id
+            name
+          }
+          ... on ProjectV2SingleSelectField {
+            id
+            name
+            options { id name }
+          }
+          ... on ProjectV2IterationField {
+            id
+            name
+            configuration { duration startDay }
           }
         }
       }
     }
+  }
+}
+"""
+
+# Uses the *current* ItemFieldValue types
+Q_ITEM_FIELD_VALUES = """
+query($itemId: ID!) {
+  node(id: $itemId) {
+    ... on ProjectV2Item {
+      id
+      fieldValues(first: 50) {
+        nodes {
+          __typename
+          ... on ProjectV2ItemFieldSingleSelectValue {
+            field {
+              __typename
+              ... on ProjectV2SingleSelectField { id name }
+            }
+            optionId
+            name
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+M_UPDATE_FIELD = """
+mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+  updateProjectV2ItemFieldValue(
+    input: {
+      projectId: $projectId
+      itemId: $itemId
+      fieldId: $fieldId
+      value: $value
+    }
+  ) {
+    projectV2Item { id }
   }
 }
 """
@@ -159,29 +185,8 @@ def parse_project_item_field_values(item: dict) -> dict:
             continue
 
         parsed = None
-        if t == "ProjectV2ItemFieldTextValue":
-            parsed = v.get("text")
-        elif t == "ProjectV2ItemFieldNumberValue":
-            parsed = v.get("number")
-        elif t == "ProjectV2ItemFieldDateValue":
-            parsed = v.get("value")
-        elif t == "ProjectV2ItemFieldTitleValue":
-            parsed = v.get("title")
-        elif t == "ProjectV2ItemFieldSingleSelectValue":
+        if t == "ProjectV2ItemFieldSingleSelectValue":
             parsed = {"optionId": v.get("optionId"), "optionName": v.get("name")}
-        elif t == "ProjectV2ItemFieldAssigneesValue":
-            parsed = [n.get("login") for n in (v.get("assignees") or {}).get("nodes", [])]
-        elif t == "ProjectV2ItemFieldLabelValue":
-            parsed = [n.get("name") for n in (v.get("labels") or {}).get("nodes", [])]
-        elif t == "ProjectV2ItemFieldRepositoryValue":
-            parsed = (v.get("repository") or {}).get("nameWithOwner")
-        elif t == "ProjectV2ItemFieldMilestoneValue":
-            parsed = (v.get("milestone") or {}).get("title")
-        elif t == "ProjectV2ItemFieldPullRequestValue":
-            prs = (v.get("pullRequests") or {}).get("nodes", [])
-            parsed = [{"number": pr.get("number"), "title": pr.get("title")} for pr in prs]
-        elif t == "ProjectV2ItemFieldTrackedByValue":
-            parsed = v.get("createdAt")
 
         out_by_name[field_name] = parsed
         out_by_id[field_id] = parsed
@@ -261,7 +266,7 @@ def get_content_id(client: GQLClient, owner: str, repo: str, number: int) -> Tup
 
 def ensure_item_in_project(client: GQLClient, project_id: str, content_id: str) -> Optional[str]:
     rs = client.gql(M_ADD_ITEM, {"projectId": project_id, "contentId": content_id})
-    # If already exists, GH may still return 200 with errors; we’ll try to recover gracefully
+    # If already exists, GH may still return 200 with errors; we'll try to recover gracefully
     if "errors" in rs and rs["errors"]:
         errors_json = json.dumps(rs["errors"], indent=2)
         die(f"GraphQL errors encountered when adding item to project: {errors_json}")
@@ -270,16 +275,71 @@ def ensure_item_in_project(client: GQLClient, project_id: str, content_id: str) 
     )
     if item_id:
         return item_id
-    # Attempt a cheap follow-up: projects don’t expose “find item by content” directly here,
+    # Attempt a cheap follow-up: projects don't expose "find item by content" directly here,
     # but we can continue without item_id if GraphQL later allows item(id: ...) via returned id.
     # Many installs return the same id on re-add; when missing, we'll proceed to read
     return None
 
 
-def fetch_item_fields(client: GQLClient, project_id: str, item_id: str) -> dict:
-    rs = client.gql(Q_ITEM_FIELD_VALUES, {"projectId": project_id, "itemId": item_id})
-    item = (((rs.get("data") or {}).get("node") or {}).get("item")) or {}
-    return item
+def get_project_fields(client: GQLClient, project_id: str) -> dict[str, Any]:
+    """Fetch field configs (Priority, Status) using inline fragments.
+    This avoids union selection errors on ProjectV2 field types."""
+    rs = client.gql(Q_GET_PROJECT_FIELDS, {"projectId": project_id})
+    fields = (((rs.get("data") or {}).get("node") or {}).get("fields") or {}).get("nodes", [])
+
+    priority_field: dict[str, Any] | None = None
+    status_field: dict[str, Any] | None = None
+
+    print("Available fields in project:")
+    for f in fields:
+        name = f.get("name")
+        typ = f.get("__typename")
+        print(f"  - {name} ({typ})")
+        if typ == "ProjectV2SingleSelectField":
+            options = f.get("options", [])
+            print(f"    Options: {[o.get('name') for o in options]}")
+
+    for f in fields:
+        name = f.get("name")
+        typ = f.get("__typename")
+        if name == "Priority" and typ == "ProjectV2SingleSelectField":
+            priority_field = f
+        elif name == "Status" and typ == "ProjectV2SingleSelectField":
+            status_field = f
+
+    if not priority_field:
+        print("WARNING: Could not find 'Priority' single-select field in project", file=sys.stderr)
+        print("Available fields listed above. Continuing without Priority field.", file=sys.stderr)
+    else:
+        print(f"✓ Found Priority field (ID: {priority_field['id']})")
+
+    if not status_field:
+        print("WARNING: Could not find 'Status' single-select field in project", file=sys.stderr)
+        print("Available fields listed above. Continuing without Status field.", file=sys.stderr)
+    else:
+        print(f"✓ Found Status field (ID: {status_field['id']})")
+
+    return {"priority": priority_field, "status": status_field}
+
+
+def get_item_field_values(client: GQLClient, item_id: str) -> list[dict[str, Any]]:
+    """Return current single-select field values for a project item."""
+    rs = client.gql(Q_ITEM_FIELD_VALUES, {"itemId": item_id})
+    item = rs.get("data", {}).get("node")
+    return (item or {}).get("fieldValues", {}).get("nodes", []) if item else []
+
+
+def set_field_value(
+    client: GQLClient, project_id: str, item_id: str, field_id: str, option_id: str
+) -> None:
+    """Set a single-select field value on a project item."""
+    variables = {
+        "projectId": project_id,
+        "itemId": item_id,
+        "fieldId": field_id,
+        "value": {"singleSelectOptionId": option_id},
+    }
+    client.gql(M_UPDATE_FIELD, variables)
 
 
 # ----------------------------
@@ -326,7 +386,77 @@ def main():
             If the next step fails, verify the item exists in the project.
         """).strip()
         )
+        die("Could not obtain item_id")
 
+    fields = get_project_fields(client, project_id)
+    priority_field = fields.get("priority")
+    status_field = fields.get("status")
+
+    p2_option = None
+    if priority_field:
+        p2_option = next(
+            (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"),
+            None,
+        )
+        if p2_option:
+            print(f"✓ Found P2 (Normal) option (ID: {p2_option['id']})")
+        else:
+            print("WARNING: Could not find 'P2 (Normal)' option in Priority field", file=sys.stderr)
+            print("Will skip setting Priority field.", file=sys.stderr)
+
+    status_option = None
+    status_candidates = ["Todo", "To do", "Backlog", "To Do"]
+    if status_field:
+        for candidate in status_candidates:
+            status_option = next(
+                (
+                    o
+                    for o in status_field.get("options", [])
+                    if o["name"].lower() == candidate.lower()
+                ),
+                None,
+            )
+            if status_option:
+                print(f"✓ Found '{status_option['name']}' option (ID: {status_option['id']})")
+                break
+
+        if not status_option:
+            print(
+                f"WARNING: Could not find any of {status_candidates} in Status field",
+                file=sys.stderr,
+            )
+            print("Will skip setting Status field.", file=sys.stderr)
+
+    print()
+
+    # Only set defaults if unset
+    current_values = get_item_field_values(client, item_id)
+    priority_set = any((v.get("field") or {}).get("name") == "Priority" for v in current_values)
+    status_set = any((v.get("field") or {}).get("name") == "Status" for v in current_values)
+
+    if priority_field and p2_option and not priority_set:
+        print("Setting Priority to P2 (Normal)…")
+        set_field_value(client, project_id, item_id, priority_field["id"], p2_option["id"])
+        print("✓ Priority set")
+    elif priority_set:
+        print("✓ Priority already set, skipping")
+    elif not priority_field:
+        print("⊘ Priority field not found, skipping")
+    elif not p2_option:
+        print("⊘ Priority option not found, skipping")
+
+    if status_field and status_option and not status_set:
+        print(f"Setting Status to {status_option['name']}…")
+        set_field_value(client, project_id, item_id, status_field["id"], status_option["id"])
+        print("✓ Status set")
+    elif status_set:
+        print("✓ Status already set, skipping")
+    elif not status_field:
+        print("⊘ Status field not found, skipping")
+    elif not status_option:
+        print("⊘ Status option not found, skipping")
+
+    print("\n✅ Sync complete!")
     return 0
 
 
