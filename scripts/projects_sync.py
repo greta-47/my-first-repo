@@ -4,9 +4,9 @@ Sync issues and pull requests to GitHub Project V2.
 
 This script:
 1. Resolves the Project ID (prefers env PROJECT_ID; falls back to owner+number via GraphQL)
-2. Finds field IDs for Priority and Stage using inline fragments
+2. Finds field IDs for Priority and Status using inline fragments
 3. Upserts the current Issue/PR into the Project
-4. Sets default values: Priority=P2 (Normal), Stage=Later (only if unset)
+4. Sets default values: Priority=P2 (Normal), Status=Todo/Backlog (only if unset)
 5. Idempotent and logs only IDs/URLs (no sensitive data)
 """
 
@@ -87,7 +87,7 @@ def get_project_id() -> str:
 
 
 def get_project_fields(project_id: str) -> dict[str, Any]:
-    """Fetch field configs (Priority, Stage) using inline fragments.
+    """Fetch field configs (Priority, Status) using inline fragments.
     This avoids union selection errors on ProjectV2 field types."""
     query = """
 query($projectId: ID!) {
@@ -121,27 +121,38 @@ query($projectId: ID!) {
     fields = data.get("data", {}).get("node", {}).get("fields", {}).get("nodes", []) or []
 
     priority_field: dict[str, Any] | None = None
-    stage_field: dict[str, Any] | None = None
+    status_field: dict[str, Any] | None = None
+
+    print("Available fields in project:")
+    for f in fields:
+        name = f.get("name")
+        typ = f.get("__typename")
+        print(f"  - {name} ({typ})")
+        if typ == "ProjectV2SingleSelectField":
+            options = f.get("options", [])
+            print(f"    Options: {[o.get('name') for o in options]}")
 
     for f in fields:
         name = f.get("name")
         typ = f.get("__typename")
         if name == "Priority" and typ == "ProjectV2SingleSelectField":
             priority_field = f
-        elif name == "Stage" and typ == "ProjectV2SingleSelectField":
-            stage_field = f
+        elif name == "Status" and typ == "ProjectV2SingleSelectField":
+            status_field = f
 
     if not priority_field:
-        print("ERROR: Could not find 'Priority' single-select field in project", file=sys.stderr)
-        sys.exit(1)
-    if not stage_field:
-        print("ERROR: Could not find 'Stage' single-select field in project", file=sys.stderr)
-        sys.exit(1)
+        print("WARNING: Could not find 'Priority' single-select field in project", file=sys.stderr)
+        print("Available fields listed above. Continuing without Priority field.", file=sys.stderr)
+    else:
+        print(f"✓ Found Priority field (ID: {priority_field['id']})")
 
-    print(f"✓ Found Priority field (ID: {priority_field['id']})")
-    print(f"✓ Found Stage field (ID: {stage_field['id']})")
+    if not status_field:
+        print("WARNING: Could not find 'Status' single-select field in project", file=sys.stderr)
+        print("Available fields listed above. Continuing without Status field.", file=sys.stderr)
+    else:
+        print(f"✓ Found Status field (ID: {status_field['id']})")
 
-    return {"priority": priority_field, "stage": stage_field}
+    return {"priority": priority_field, "status": status_field}
 
 
 def get_item_node_id(repo_owner: str, repo_name: str, issue_number: str) -> str:
@@ -273,24 +284,44 @@ def main() -> None:
     project_id = get_project_id()
     fields = get_project_fields(project_id)
 
-    priority_field = fields["priority"]
-    stage_field = fields["stage"]
+    priority_field = fields.get("priority")
+    status_field = fields.get("status")
 
-    p2_option = next(
-        (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"),
-        None,
-    )
-    later_option = next((o for o in stage_field.get("options", []) if o["name"] == "Later"), None)
+    p2_option = None
+    if priority_field:
+        p2_option = next(
+            (o for o in priority_field.get("options", []) if o["name"] == "P2 (Normal)"),
+            None,
+        )
+        if p2_option:
+            print(f"✓ Found P2 (Normal) option (ID: {p2_option['id']})")
+        else:
+            print("WARNING: Could not find 'P2 (Normal)' option in Priority field", file=sys.stderr)
+            print("Will skip setting Priority field.", file=sys.stderr)
 
-    if not p2_option:
-        print("ERROR: Could not find 'P2 (Normal)' option in Priority field", file=sys.stderr)
-        sys.exit(1)
-    if not later_option:
-        print("ERROR: Could not find 'Later' option in Stage field", file=sys.stderr)
-        sys.exit(1)
+    status_option = None
+    status_candidates = ["Todo", "To do", "Backlog", "To Do"]
+    if status_field:
+        for candidate in status_candidates:
+            status_option = next(
+                (
+                    o
+                    for o in status_field.get("options", [])
+                    if o["name"].lower() == candidate.lower()
+                ),
+                None,
+            )
+            if status_option:
+                print(f"✓ Found '{status_option['name']}' option (ID: {status_option['id']})")
+                break
 
-    print(f"✓ Found P2 (Normal) option (ID: {p2_option['id']})")
-    print(f"✓ Found Later option (ID: {later_option['id']})")
+        if not status_option:
+            print(
+                f"WARNING: Could not find any of {status_candidates} in Status field",
+                file=sys.stderr,
+            )
+            print("Will skip setting Status field.", file=sys.stderr)
+
     print()
 
     # Upsert item into project
@@ -300,21 +331,29 @@ def main() -> None:
     # Only set defaults if unset
     current_values = get_project_item_fields(project_id, item_id)
     priority_set = any((v.get("field") or {}).get("name") == "Priority" for v in current_values)
-    stage_set = any((v.get("field") or {}).get("name") == "Stage" for v in current_values)
+    status_set = any((v.get("field") or {}).get("name") == "Status" for v in current_values)
 
-    if not priority_set:
+    if priority_field and p2_option and not priority_set:
         print("Setting Priority to P2 (Normal)…")
         set_field_value(project_id, item_id, priority_field["id"], p2_option["id"])
         print("✓ Priority set")
-    else:
+    elif priority_set:
         print("✓ Priority already set, skipping")
+    elif not priority_field:
+        print("⊘ Priority field not found, skipping")
+    elif not p2_option:
+        print("⊘ Priority option not found, skipping")
 
-    if not stage_set:
-        print("Setting Stage to Later…")
-        set_field_value(project_id, item_id, stage_field["id"], later_option["id"])
-        print("✓ Stage set")
-    else:
-        print("✓ Stage already set, skipping")
+    if status_field and status_option and not status_set:
+        print(f"Setting Status to {status_option['name']}…")
+        set_field_value(project_id, item_id, status_field["id"], status_option["id"])
+        print("✓ Status set")
+    elif status_set:
+        print("✓ Status already set, skipping")
+    elif not status_field:
+        print("⊘ Status field not found, skipping")
+    elif not status_option:
+        print("⊘ Status option not found, skipping")
 
     print("\n✅ Sync complete!")
 
