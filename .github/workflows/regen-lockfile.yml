@@ -4,29 +4,46 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Branch to run on (e.g., feature/x or chore/docs-csp)"
+        description: "Branch to run on (e.g., chore/pytest-cov-fix-1762425386)"
         required: false
         default: "main"
+      allow_unsafe:
+        description: "Include --allow-unsafe in pip-compile"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
   pull-requests: write
 
+# Slashes are permitted in concurrency group strings, so we use the raw ref here.
 concurrency:
-  group: regen-lockfile-${{ github.ref }}
+  group: regen-lockfile-${{ github.event.inputs.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   regen:
-    name: Compile hashed lockfile (Linux · Py3.12 · pip-tools 7.4.1)
+    name: Compile hashed lockfiles (Linux · Py3.12.5 · pip-tools 7.4.1)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+          fetch-depth: 0
+
+      - name: Validate ref exists
+        run: |
+          git ls-remote --exit-code origin "${{ github.event.inputs.ref }}" || { echo "Ref not found: ${{ github.event.inputs.ref }}"; exit 1; }
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12.5"
           cache: "pip"
+
+      - name: Show platform info
+        run: |
+          python -c "import sysconfig; print('Platform:', sysconfig.get_platform())"
+          python -c "import sys; print('Python:', sys.version)"
 
       - name: Pin pip & pip-tools
         run: |
@@ -37,20 +54,39 @@ jobs:
 
       - name: Compile requirements.lock.txt with hashes
         run: |
-          pip-compile --generate-hashes -o requirements.lock.txt requirements.txt
+          if [ "${{ github.event.inputs.allow_unsafe }}" = "true" ]; then ALLOW="--allow-unsafe"; else ALLOW=""; fi
+          pip-compile --generate-hashes $ALLOW -o requirements.lock.txt requirements.txt
           test -s requirements.lock.txt
 
-      # Let the action handle commit+branch+PR (avoids git identity & push issues)
-      - name: Open PR with updated lockfile
+      - name: Compile requirements-dev.lock.txt with hashes
+        if: ${{ hashFiles('requirements-dev.txt') != '' }}
+        run: |
+          if [ "${{ github.event.inputs.allow_unsafe }}" = "true" ]; then ALLOW="--allow-unsafe"; else ALLOW=""; fi
+          pip-compile --generate-hashes $ALLOW -o requirements-dev.lock.txt requirements-dev.txt
+          test -s requirements-dev.lock.txt
+
+      - name: Sanitize ref for PR branch name
+        id: slug
+        shell: bash
+        run: |
+          REF="${{ github.event.inputs.ref || github.ref_name }}"
+          # Replace any char not in [A-Za-z0-9._-] with '-', collapse repeats, trim leading/trailing '-' or '.'
+          SAFE="$(printf '%s' "$REF" | sed 's/[^A-Za-z0-9._-]/-/g; s/-\{2,\}/-/g; s/^[-.]*//; s/[-.]*$//')"
+          echo "ref_safe=$SAFE" >> "$GITHUB_OUTPUT"
+
+      - name: Open PR with updated lockfiles
         uses: peter-evans/create-pull-request@v6
         with:
-          title: "chore(ci): regenerate requirements.lock on linux for deterministic hashes"
-          commit-message: "chore(ci): regenerate requirements.lock.txt (Linux · Py3.12 · pip==24.2 · pip-tools==7.4.1)"
+          title: "chore(ci): regenerate lockfiles for ${{ github.event.inputs.ref }}"
+          commit-message: "chore(ci): regenerate lockfiles (Linux · Py3.12.5 · pip==24.2 · pip-tools==7.4.1)"
           body: |
-            Generated on GitHub Actions: Linux runner, Python 3.12, pip==24.2, pip-tools==7.4.1.
-            Deterministic hashes for CI lockfile preflight.
-          branch: chore/lockfile-linux-refresh
-          base: ${{ github.ref_name }}
+            Generated on GitHub Actions (ubuntu-latest), Python 3.12.5, pip==24.2, pip-tools==7.4.1.
+            Deterministic hashes for CI preflight. Ref: ${{ github.event.inputs.ref }}
+          branch: chore/lockfile-linux-refresh/${{ steps.slug.outputs.ref_safe }}
+          base: ${{ github.event.inputs.ref || github.ref_name }}
           add-paths: |
             requirements.lock.txt
+            requirements-dev.lock.txt
           delete-branch: true
+          labels: dependencies, lockfile-refresh
+          assignees: greta-47
