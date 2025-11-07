@@ -69,15 +69,15 @@ jobs:
             sudo apt-get update -qq
             sudo apt-get install -y jq
           fi
-          echo "✓ jq is available: $(jq --version)"
+          echo "[OK] jq is available: $(jq --version)"
           
           # Detect doctl command capabilities for deployment ID extraction
           echo "Checking doctl apps command capabilities..."
           if doctl apps --help 2>&1 | grep -q 'create-deployment'; then
-            echo "✓ doctl apps create-deployment is available"
+            echo "[OK] doctl apps create-deployment is available"
             echo "DOCTL_HAS_CREATE_DEPLOYMENT=true" >> $GITHUB_ENV
           else
-            echo "⚠ doctl apps create-deployment not available in v1.146.0"
+            echo "[WARN] doctl apps create-deployment not available in v1.146.0"
             echo "DOCTL_HAS_CREATE_DEPLOYMENT=false" >> $GITHUB_ENV
           fi
 
@@ -90,14 +90,14 @@ jobs:
             echo "Error: .do/app.yaml not found"
             exit 1
           fi
-          echo "✓ .do/app.yaml exists"
+          echo "[OK] .do/app.yaml exists"
           
           # Validate YAML syntax
           if ! yq eval '.' .do/app.yaml > /dev/null 2>&1; then
             echo "Error: .do/app.yaml has invalid YAML syntax"
             exit 1
           fi
-          echo "✓ YAML syntax is valid"
+          echo "[OK] YAML syntax is valid"
           
           # Check service port is 8000
           SERVICE_PORT=$(yq eval '.services[0].http_port' .do/app.yaml)
@@ -105,7 +105,7 @@ jobs:
             echo "Error: Service port is $SERVICE_PORT, expected 8000"
             exit 1
           fi
-          echo "✓ Service port is 8000"
+          echo "[OK] Service port is 8000"
           
           # Check image registry and repository are set
           REGISTRY=$(yq eval '.services[0].image.registry' .do/app.yaml)
@@ -118,15 +118,15 @@ jobs:
             echo "Error: Image repository not set in .do/app.yaml"
             exit 1
           fi
-          echo "✓ Image registry: $REGISTRY"
-          echo "✓ Image repository: $REPOSITORY"
+          echo "[OK] Image registry: $REGISTRY"
+          echo "[OK] Image repository: $REPOSITORY"
           
           # Check migrate job exists and has correct image
           MIGRATE_JOB=$(yq eval '.jobs[0].name' .do/app.yaml)
           if [ "$MIGRATE_JOB" != "migrate" ]; then
             echo "Warning: Expected migrate job, found: $MIGRATE_JOB"
           else
-            echo "✓ Migrate job configured"
+            echo "[OK] Migrate job configured"
           fi
           
           echo "All pre-deploy sanity checks passed!"
@@ -175,7 +175,7 @@ jobs:
           [ -n "$API_REGISTRY" ] && [ "$API_REGISTRY" != "null" ] || die "API service registry is empty"
           [ -n "$API_REPO" ] && [ "$API_REPO" != "null" ] || die "API service repository is empty"
           [ "$API_TAG" = "${{ github.sha }}" ] || die "API service tag mismatch (expected: ${{ github.sha }}, got: $API_TAG)"
-          echo "✓ API service image: ghcr.io/$API_REGISTRY/$API_REPO:$API_TAG"
+          echo "[OK] API service image: ghcr.io/$API_REGISTRY/$API_REPO:$API_TAG"
           
           # Check migrate job image configuration
           MIGRATE_REGISTRY_TYPE=$(yq eval '.jobs[] | select(.name == "migrate") | .image.registry_type' .do/app-deploy.yaml)
@@ -187,7 +187,7 @@ jobs:
           [ -n "$MIGRATE_REGISTRY" ] && [ "$MIGRATE_REGISTRY" != "null" ] || die "Migrate job registry is empty"
           [ -n "$MIGRATE_REPO" ] && [ "$MIGRATE_REPO" != "null" ] || die "Migrate job repository is empty"
           [ "$MIGRATE_TAG" = "${{ github.sha }}" ] || die "Migrate job tag mismatch (expected: ${{ github.sha }}, got: $MIGRATE_TAG)"
-          echo "✓ Migrate job image: ghcr.io/$MIGRATE_REGISTRY/$MIGRATE_REPO:$MIGRATE_TAG"
+          echo "[OK] Migrate job image: ghcr.io/$MIGRATE_REGISTRY/$MIGRATE_REPO:$MIGRATE_TAG"
           
           # Deploy the updated app and capture deployment ID using three-tier strategy
           echo "Initiating deployment..."
@@ -198,9 +198,9 @@ jobs:
           DEPLOYMENT_ID=$(echo "$DEPLOY_JSON" | jq -er '.active_deployment.id // .pending_deployment.id // empty' 2>/dev/null || true)
           
           if [ -n "$DEPLOYMENT_ID" ]; then
-            echo "✓ Deployment ID from update: $DEPLOYMENT_ID"
+            echo "[OK] Deployment ID from update: $DEPLOYMENT_ID"
           else
-            echo "⚠ No deployment ID from update output"
+            echo "[WARN] No deployment ID from update output"
             
             # Strategy 2: Use 'doctl apps create-deployment' if available
             if [ "${{ env.DOCTL_HAS_CREATE_DEPLOYMENT }}" = "true" ]; then
@@ -209,9 +209,9 @@ jobs:
               DEPLOYMENT_ID=$(echo "$CREATE_JSON" | jq -er '.id // empty' 2>/dev/null || true)
               
               if [ -n "$DEPLOYMENT_ID" ]; then
-                echo "✓ Deployment ID from create-deployment: $DEPLOYMENT_ID"
+                echo "[OK] Deployment ID from create-deployment: $DEPLOYMENT_ID"
               else
-                echo "⚠ No deployment ID from create-deployment"
+                echo "[WARN] No deployment ID from create-deployment"
               fi
             fi
           fi
@@ -228,7 +228,7 @@ jobs:
               DEPLOYMENT_ID=$(echo "$LIST_JSON" | jq -er 'sort_by(.created_at // .CreatedAt) | last | .id // empty' 2>/dev/null || true)
               
               if [ -n "$DEPLOYMENT_ID" ]; then
-                echo "✓ Deployment ID from list-deployments: $DEPLOYMENT_ID"
+                echo "[OK] Deployment ID from list-deployments: $DEPLOYMENT_ID"
                 break
               fi
               echo "No deployment ID yet, retrying..."
@@ -276,23 +276,23 @@ jobs:
             
             # Check for terminal states
             if [ "$PHASE" = "ACTIVE" ]; then
-              echo "✓ Deployment successful! (completed in ${ELAPSED}s)"
+              echo "[SUCCESS] Deployment successful! (completed in ${ELAPSED}s)"
               exit 0
             elif [ "$PHASE" = "ERROR" ] || [ "$PHASE" = "FAILED" ]; then
-              echo "✗ Deployment failed with phase: $PHASE"
+              echo "[FAILED] Deployment failed with phase: $PHASE"
               echo "Check logs at: https://cloud.digitalocean.com/apps/$APP_ID"
               exit 1
             elif [ "$PHASE" = "CANCELED" ] || [ "$PHASE" = "CANCELLED" ]; then
-              echo "✗ Deployment was canceled"
+              echo "[FAILED] Deployment was canceled"
               exit 1
             elif [ "$PHASE" = "UNKNOWN" ]; then
-              echo "⚠ Warning: Could not determine deployment phase (API may be unavailable)"
+              echo "[WARN] Warning: Could not determine deployment phase (API may be unavailable)"
             fi
             
             sleep $INTERVAL_SECONDS
           done
           
-          echo "✗ Deployment timeout after ${TIMEOUT_SECONDS}s (15 minutes)"
+          echo "[FAILED] Deployment timeout after ${TIMEOUT_SECONDS}s (15 minutes)"
           echo "Last known phase: $PHASE"
           echo "Check DigitalOcean console: https://cloud.digitalocean.com/apps/$APP_ID"
           exit 1
@@ -304,7 +304,7 @@ jobs:
           # This runs even if previous steps fail, complementing the trap in the deployment step
           if [ -f .do/app-deploy.yaml ]; then
             rm -f .do/app-deploy.yaml
-            echo "✓ Cleaned up .do/app-deploy.yaml"
+            echo "[OK] Cleaned up .do/app-deploy.yaml"
           else
-            echo "✓ No temporary files to clean up"
+            echo "[OK] No temporary files to clean up"
           fi
