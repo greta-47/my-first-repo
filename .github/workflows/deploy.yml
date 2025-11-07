@@ -5,6 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Prevent overlapping deployments to the same environment
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
@@ -70,16 +75,6 @@ jobs:
             sudo apt-get install -y jq
           fi
           echo "[OK] jq is available: $(jq --version)"
-          
-          # Detect doctl command capabilities for deployment ID extraction
-          echo "Checking doctl apps command capabilities..."
-          if doctl apps --help 2>&1 | grep -q 'create-deployment'; then
-            echo "[OK] doctl apps create-deployment is available"
-            echo "DOCTL_HAS_CREATE_DEPLOYMENT=true" >> $GITHUB_ENV
-          else
-            echo "[WARN] doctl apps create-deployment not available in v1.146.0"
-            echo "DOCTL_HAS_CREATE_DEPLOYMENT=false" >> $GITHUB_ENV
-          fi
 
       - name: Pre-deploy sanity check
         run: |
@@ -189,54 +184,59 @@ jobs:
           [ "$MIGRATE_TAG" = "${{ github.sha }}" ] || die "Migrate job tag mismatch (expected: ${{ github.sha }}, got: $MIGRATE_TAG)"
           echo "[OK] Migrate job image: ghcr.io/$MIGRATE_REGISTRY/$MIGRATE_REPO:$MIGRATE_TAG"
           
-          # Deploy the updated app and capture deployment ID using three-tier strategy
+          # Deploy the updated app and capture deployment ID
+          # Use single deployment path to avoid race conditions that cause CANCELED status
           echo "Initiating deployment..."
           
-          # Strategy 1: Parse deployment ID from 'doctl apps update' JSON output
-          echo "Attempting to extract deployment ID from update command..."
+          # Parse deployment ID from 'doctl apps update' JSON output
+          # Handle both object and array response formats from different doctl versions
+          echo "Updating app and extracting deployment ID..."
           DEPLOY_JSON=$(doctl apps update "$APP_ID" --spec .do/app-deploy.yaml -o json 2>&1 || true)
-          DEPLOYMENT_ID=$(echo "$DEPLOY_JSON" | jq -er '.active_deployment.id // .pending_deployment.id // empty' 2>/dev/null || true)
+          DEPLOYMENT_ID=$(echo "$DEPLOY_JSON" | jq -er '.[0].active_deployment.id // .active_deployment.id // .[0].pending_deployment.id // .pending_deployment.id // empty' 2>/dev/null || true)
           
           if [ -n "$DEPLOYMENT_ID" ]; then
             echo "[OK] Deployment ID from update: $DEPLOYMENT_ID"
           else
-            echo "[WARN] No deployment ID from update output"
+            echo "[WARN] No deployment ID from update output, falling back to list-deployments..."
             
-            # Strategy 2: Use 'doctl apps create-deployment' if available
-            if [ "${{ env.DOCTL_HAS_CREATE_DEPLOYMENT }}" = "true" ]; then
-              echo "Attempting create-deployment command..."
-              CREATE_JSON=$(doctl apps create-deployment "$APP_ID" -o json 2>&1 || true)
-              DEPLOYMENT_ID=$(echo "$CREATE_JSON" | jq -er '.id // empty' 2>/dev/null || true)
-              
-              if [ -n "$DEPLOYMENT_ID" ]; then
-                echo "[OK] Deployment ID from create-deployment: $DEPLOYMENT_ID"
-              else
-                echo "[WARN] No deployment ID from create-deployment"
-              fi
-            fi
-          fi
-          
-          # Strategy 3: Final fallback - list deployments and get most recent by created_at
-          if [ -z "$DEPLOYMENT_ID" ]; then
-            echo "Falling back to list-deployments (with retry)..."
-            for attempt in {1..3}; do
-              sleep 2
-              echo "Attempt $attempt: Fetching deployment list..."
+            # Fallback: list deployments and get most recent by created_at
+            # Use exponential backoff with 5 retries for API consistency
+            BACKOFF_DELAYS=(2 3 5 8 13)
+            
+            for attempt in {1..5}; do
+              DELAY=${BACKOFF_DELAYS[$((attempt-1))]}
+              echo "Attempt $attempt/5: Fetching deployment list (waiting ${DELAY}s)..."
+              sleep "$DELAY"
               
               # Use JSON output and sort by created_at to get most recent
               LIST_JSON=$(doctl apps list-deployments "$APP_ID" -o json 2>&1 || true)
-              DEPLOYMENT_ID=$(echo "$LIST_JSON" | jq -er 'sort_by(.created_at // .CreatedAt) | last | .id // empty' 2>/dev/null || true)
+              
+              # Get the most recent deployment with timestamp for validation
+              DEPLOYMENT_DATA=$(echo "$LIST_JSON" | jq -er 'sort_by(.created_at // .CreatedAt) | last | {id: .id, created_at: (.created_at // .CreatedAt)}' 2>/dev/null || true)
+              DEPLOYMENT_ID=$(echo "$DEPLOYMENT_DATA" | jq -er '.id // empty' 2>/dev/null || true)
+              DEPLOYMENT_CREATED=$(echo "$DEPLOYMENT_DATA" | jq -er '.created_at // empty' 2>/dev/null || true)
               
               if [ -n "$DEPLOYMENT_ID" ]; then
-                echo "[OK] Deployment ID from list-deployments: $DEPLOYMENT_ID"
-                break
+                # Verify deployment was created recently (within last 2 minutes = 120 seconds)
+                CURRENT_TIME=$(date +%s)
+                DEPLOYMENT_TIME=$(date -d "$DEPLOYMENT_CREATED" +%s 2>/dev/null || echo "0")
+                AGE_SECONDS=$((CURRENT_TIME - DEPLOYMENT_TIME))
+                
+                if [ "$AGE_SECONDS" -le 120 ]; then
+                  echo "[OK] Deployment ID from list-deployments: $DEPLOYMENT_ID (age: ${AGE_SECONDS}s)"
+                  break
+                else
+                  echo "[WARN] Found deployment $DEPLOYMENT_ID but it's too old (${AGE_SECONDS}s), retrying..."
+                  DEPLOYMENT_ID=""
+                fi
+              else
+                echo "[WARN] No deployment ID found yet, retrying..."
               fi
-              echo "No deployment ID yet, retrying..."
             done
           fi
           
-          # Fail if all strategies failed
-          [ -n "$DEPLOYMENT_ID" ] || die "Could not retrieve deployment ID after all strategies. Check DigitalOcean console: https://cloud.digitalocean.com/apps/$APP_ID"
+          # Fail if we couldn't get a deployment ID
+          [ -n "$DEPLOYMENT_ID" ] || die "Could not retrieve deployment ID. Check DigitalOcean console: https://cloud.digitalocean.com/apps/$APP_ID"
           
           echo "Deployment ID: $DEPLOYMENT_ID"
           echo "DEPLOYMENT_ID=$DEPLOYMENT_ID" >> $GITHUB_ENV
