@@ -32,7 +32,6 @@ jobs:
       - name: Pip Audit (non-blocking)
         continue-on-error: true
         run: |
-          python -m pip install pip-audit
           python -m pip_audit -r requirements.txt --severity high,critical
       - name: Pytest
         run: |
