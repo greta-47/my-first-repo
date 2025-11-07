@@ -189,9 +189,10 @@ jobs:
           echo "Initiating deployment..."
           
           # Parse deployment ID from 'doctl apps update' JSON output
+          # Handle both object and array response formats from different doctl versions
           echo "Updating app and extracting deployment ID..."
           DEPLOY_JSON=$(doctl apps update "$APP_ID" --spec .do/app-deploy.yaml -o json 2>&1 || true)
-          DEPLOYMENT_ID=$(echo "$DEPLOY_JSON" | jq -er '.active_deployment.id // .pending_deployment.id // empty' 2>/dev/null || true)
+          DEPLOYMENT_ID=$(echo "$DEPLOY_JSON" | jq -er '.[0].active_deployment.id // .active_deployment.id // .[0].pending_deployment.id // .pending_deployment.id // empty' 2>/dev/null || true)
           
           if [ -n "$DEPLOYMENT_ID" ]; then
             echo "[OK] Deployment ID from update: $DEPLOYMENT_ID"
@@ -199,22 +200,38 @@ jobs:
             echo "[WARN] No deployment ID from update output, falling back to list-deployments..."
             
             # Fallback: list deployments and get most recent by created_at
-            # Wait briefly for the deployment to appear in the API
-            sleep 3
+            # Use exponential backoff with 5 retries for API consistency
+            BACKOFF_DELAYS=(2 3 5 8 13)
             
-            for attempt in {1..3}; do
-              echo "Attempt $attempt: Fetching deployment list..."
+            for attempt in {1..5}; do
+              DELAY=${BACKOFF_DELAYS[$((attempt-1))]}
+              echo "Attempt $attempt/5: Fetching deployment list (waiting ${DELAY}s)..."
+              sleep "$DELAY"
               
               # Use JSON output and sort by created_at to get most recent
               LIST_JSON=$(doctl apps list-deployments "$APP_ID" -o json 2>&1 || true)
-              DEPLOYMENT_ID=$(echo "$LIST_JSON" | jq -er 'sort_by(.created_at // .CreatedAt) | last | .id // empty' 2>/dev/null || true)
+              
+              # Get the most recent deployment with timestamp for validation
+              DEPLOYMENT_DATA=$(echo "$LIST_JSON" | jq -er 'sort_by(.created_at // .CreatedAt) | last | {id: .id, created_at: (.created_at // .CreatedAt)}' 2>/dev/null || true)
+              DEPLOYMENT_ID=$(echo "$DEPLOYMENT_DATA" | jq -er '.id // empty' 2>/dev/null || true)
+              DEPLOYMENT_CREATED=$(echo "$DEPLOYMENT_DATA" | jq -er '.created_at // empty' 2>/dev/null || true)
               
               if [ -n "$DEPLOYMENT_ID" ]; then
-                echo "[OK] Deployment ID from list-deployments: $DEPLOYMENT_ID"
-                break
+                # Verify deployment was created recently (within last 2 minutes = 120 seconds)
+                CURRENT_TIME=$(date +%s)
+                DEPLOYMENT_TIME=$(date -d "$DEPLOYMENT_CREATED" +%s 2>/dev/null || echo "0")
+                AGE_SECONDS=$((CURRENT_TIME - DEPLOYMENT_TIME))
+                
+                if [ "$AGE_SECONDS" -le 120 ]; then
+                  echo "[OK] Deployment ID from list-deployments: $DEPLOYMENT_ID (age: ${AGE_SECONDS}s)"
+                  break
+                else
+                  echo "[WARN] Found deployment $DEPLOYMENT_ID but it's too old (${AGE_SECONDS}s), retrying..."
+                  DEPLOYMENT_ID=""
+                fi
+              else
+                echo "[WARN] No deployment ID found yet, retrying..."
               fi
-              echo "No deployment ID yet, retrying in 2s..."
-              sleep 2
             done
           fi
           
