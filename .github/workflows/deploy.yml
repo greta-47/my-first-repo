@@ -297,6 +297,40 @@ jobs:
           echo "Check DigitalOcean console: https://cloud.digitalocean.com/apps/$APP_ID"
           exit 1
 
+      - name: Deployment diagnostics (on failure)
+        if: failure()
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          APP_ID: ${{ secrets.DIGITALOCEAN_APP_ID }}
+          DEPLOYMENT_ID: ${{ env.DEPLOYMENT_ID }}
+        run: |
+          set +e
+          echo "=== Deployment Diagnostics ==="
+          echo "Deployment ID: $DEPLOYMENT_ID"
+          echo ""
+          
+          doctl auth init -t "$DIGITALOCEAN_ACCESS_TOKEN"
+          
+          echo "=== Deployment Details ==="
+          doctl apps get-deployment "$APP_ID" "$DEPLOYMENT_ID" -o json | jq '.' || echo "Failed to get deployment details"
+          echo ""
+          
+          for comp in api migrate; do
+            echo "=== Component: $comp (deploy logs) ==="
+            doctl apps logs --app "$APP_ID" --deployment "$DEPLOYMENT_ID" --type deploy --component "$comp" 2>&1 || echo "No deploy logs for $comp"
+            echo ""
+            
+            echo "=== Component: $comp (run logs) ==="
+            doctl apps logs --app "$APP_ID" --deployment "$DEPLOYMENT_ID" --type run --component "$comp" 2>&1 || echo "No run logs for $comp"
+            echo ""
+            
+            echo "=== Component: $comp (job logs) ==="
+            doctl apps logs --app "$APP_ID" --deployment "$DEPLOYMENT_ID" --type job --component "$comp" 2>&1 || echo "No job logs for $comp"
+            echo ""
+          done
+          
+          echo "=== End Diagnostics ==="
+
       - name: Cleanup temporary files
         if: always()
         run: |
