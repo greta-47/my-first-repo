@@ -22,6 +22,9 @@ services:
     instance_count: 1
     instance_size_slug: basic-xxs
     
+    internal_connections:
+      - name: recoveryos-db
+    
     envs:
       - key: APP_ENV
         value: production
@@ -60,6 +63,7 @@ services:
       - key: DATABASE_URL
         scope: RUN_TIME
         type: SECRET
+        value: ${recoveryos-db.DATABASE_URL}
       - key: OTEL_EXPORTER_OTLP_ENDPOINT
         scope: RUN_TIME
         type: SECRET
@@ -96,6 +100,7 @@ jobs:
       - key: DATABASE_URL
         scope: RUN_TIME
         type: SECRET
+        value: ${recoveryos-db.DATABASE_URL}
 
 domains:
   - domain: recoveryos.org
