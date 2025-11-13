@@ -317,15 +317,15 @@ jobs:
           
           for comp in api migrate; do
             echo "=== Component: $comp (deploy logs) ==="
-            doctl apps logs --app "$APP_ID" --deployment "$DEPLOYMENT_ID" --type deploy --component "$comp" 2>&1 || echo "No deploy logs for $comp"
+            doctl apps logs "$APP_ID" "$comp" --type deploy --deployment "$DEPLOYMENT_ID" 2>&1 || echo "No deploy logs for $comp"
             echo ""
             
             echo "=== Component: $comp (run logs) ==="
-            doctl apps logs --app "$APP_ID" --deployment "$DEPLOYMENT_ID" --type run --component "$comp" 2>&1 || echo "No run logs for $comp"
+            doctl apps logs "$APP_ID" "$comp" --type run --deployment "$DEPLOYMENT_ID" 2>&1 || echo "No run logs for $comp"
             echo ""
             
             echo "=== Component: $comp (job logs) ==="
-            doctl apps logs --app "$APP_ID" --deployment "$DEPLOYMENT_ID" --type job --component "$comp" 2>&1 || echo "No job logs for $comp"
+            doctl apps logs "$APP_ID" "$comp" --type job --deployment "$DEPLOYMENT_ID" 2>&1 || echo "No job logs for $comp"
             echo ""
           done
           
