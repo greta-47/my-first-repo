@@ -25,7 +25,7 @@ python -m pytest -q
 ```bash
 python -m pip install -U pip==24.2 pip-tools==7.4.1
 pip install -r requirements.lock.txt
-pip install -r requirements.dev.lock.txt
+pip install -r requirements-dev.lock.txt
 ```
 
 Note: The repository pins pyenv to Python 3.12.5 for consistency across dev and CI. Ensure you have a compatible python3 available locally.

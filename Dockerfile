@@ -19,12 +19,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /wheels
-# Better caching: copy only requirements first
-COPY requirements.txt /wheels/requirements.txt
+# Better caching: copy only requirements lockfile first
+COPY requirements.lock.txt /wheels/requirements.lock.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install -U pip setuptools wheel pip-tools && \
-    pip wheel --wheel-dir=/wheels/dist -r /wheels/requirements.txt
+    pip wheel --wheel-dir=/wheels/dist -r /wheels/requirements.lock.txt
 
 ########## Stage 2: slim runtime ##########
 FROM python:3.12-slim AS runtime
