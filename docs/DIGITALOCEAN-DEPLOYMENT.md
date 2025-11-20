@@ -176,6 +176,12 @@ doctl apps list-components $APP_ID
 - SSL: Enabled by default
 - Backups: Daily automatic backups
 
+### Automatic database migrations
+
+- The App Platform pre-deploy job runs `scripts/migrate.sh`, which now respects `DB_AUTO_MIGRATE=true` by default to apply Alembic migrations before the app rolls out.
+- The long-running `api` service also receives `DB_AUTO_MIGRATE=true`, enabling the same on-startup migration path used in local development (guarded by `settings.db_auto_migrate`).
+- To disable automatic migrations (e.g., for manual control), set `DB_AUTO_MIGRATE` to `false` in `.do/app.yaml` for both the `migrate` job and the `api` service, then redeploy.
+
 ## Step 7: Deploy Your App
 
 Deployment happens automatically when you push to `main`:
