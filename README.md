@@ -18,6 +18,9 @@ python -m uvicorn app.main:app --reload
 # test (after installing locks)
 python -m pytest -q
 # or: python3 -m pytest -q
+
+# optional: run with coverage once pytest-cov is installed
+PYTEST_ADDOPTS="--cov=app --cov-report=term-missing" python -m pytest -q
 ```
 
 ### Install (new contributors)
@@ -29,6 +32,17 @@ pip install -r requirements-dev.lock.txt
 ```
 
 Note: The repository pins pyenv to Python 3.12.5 for consistency across dev and CI. Ensure you have a compatible python3 available locally.
+
+### Test environment notes
+
+Pyenv manages the Python interpreter for this project via `.python-version`. If `python -m pytest` reports that Python 3.12.5 is missing, either install it (`pyenv install 3.12.5`) or temporarily point pyenv at an installed 3.12.x version before running tests:
+
+```bash
+# use an installed interpreter for this shell only
+PYENV_VERSION=3.12.12 python -m pytest -q
+```
+
+This avoids environment setup failures while keeping the default version pinned for CI.
 
 ## API Documentation
 

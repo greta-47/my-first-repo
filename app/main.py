@@ -601,6 +601,8 @@ async def lifespan(app_: FastAPI):
                 logger.warning(f"Migration failed: {e}")
                 if settings.strict_startup:
                     raise
+    else:
+        logger.info("DB_AUTO_MIGRATE is disabled; skipping migrations on startup")
     yield
 
 
