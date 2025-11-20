@@ -104,7 +104,7 @@ This repository automatically syncs issues and pull requests to the GitHub Proje
 
 ### How It Works
 
-When an issue or PR is opened, edited, labeled, or unlabeled, the `.github/workflows/projects-sync.yml` workflow:
+When an issue or PR is opened, edited, labeled, or unlabeled, the `.github/workflows/projects-sync.yml` workflow (triggered by the `issues`, `pull_request`, and `workflow_dispatch` events) does the following:
 
 1. Adds the item to the project (if not already present)
 2. Sets default field values if unset:
@@ -112,6 +112,8 @@ When an issue or PR is opened, edited, labeled, or unlabeled, the `.github/workf
    - **Stage**: Later
 
 The sync is idempotent - it won't overwrite existing field values, only set defaults for empty fields.
+
+If you modify `.github/workflows/projects-sync.yml`, keep the documented triggers above in sync so the automation stays aligned with the process described here.
 
 ### Manual Trigger
 
