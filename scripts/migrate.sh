@@ -10,8 +10,13 @@ if [ "${DB_AUTO_MIGRATE:-false}" != "true" ]; then
 fi
 
 if [ -z "${DATABASE_URL:-}" ]; then
-    echo "[ERROR] DATABASE_URL environment variable is not set"
-    exit 1
+    if [ "${MIGRATION_STRICT:-false}" = "true" ]; then
+        echo "[ERROR] DATABASE_URL environment variable is not set (MIGRATION_STRICT=true)"
+        exit 1
+    else
+        echo "[INFO] DATABASE_URL not set; skipping migrations (set MIGRATION_STRICT=true to fail on missing DATABASE_URL)"
+        exit 0
+    fi
 fi
 
 echo "[INFO] Database URL configured (connection string redacted for security)"
@@ -20,7 +25,7 @@ MAX_RETRIES=10
 RETRY_COUNT=0
 INITIAL_DELAY=2
 MAX_DELAY=10
-TOTAL_TIMEOUT=120
+TOTAL_TIMEOUT=180
 START_TIME=$(date +%s)
 
 check_db_connectivity() {
