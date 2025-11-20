@@ -178,9 +178,9 @@ doctl apps list-components $APP_ID
 
 ### Automatic database migrations
 
-- The App Platform pre-deploy job runs `scripts/migrate.sh`, which now respects `DB_AUTO_MIGRATE=true` by default to apply Alembic migrations before the app rolls out.
-- The long-running `api` service also receives `DB_AUTO_MIGRATE=true`, enabling the same on-startup migration path used in local development (guarded by `settings.db_auto_migrate`).
-- To disable automatic migrations (e.g., for manual control), set `DB_AUTO_MIGRATE` to `false` in `.do/app.yaml` for both the `migrate` job and the `api` service, then redeploy.
+- By default, automatic migrations are **disabled** (`DB_AUTO_MIGRATE=false`) to allow the app to deploy successfully with in-memory storage before database integration is complete.
+- The App Platform pre-deploy job runs `scripts/migrate.sh`, which checks the `DB_AUTO_MIGRATE` flag and skips migrations when disabled.
+- To enable automatic migrations when your database is ready, set `DB_AUTO_MIGRATE` to `"true"` in `.do/app.yaml` for both the `migrate` job and the `api` service, ensure `DATABASE_URL` is configured as a secret in DigitalOcean, then redeploy.
 
 ## Step 7: Deploy Your App
 
