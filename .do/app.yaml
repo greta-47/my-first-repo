@@ -96,8 +96,6 @@ jobs:
         value: production
       - key: DB_AUTO_MIGRATE
         value: "false"
-      - key: MIGRATION_STRICT
-        value: "false"
       - key: DATABASE_URL
         scope: RUN_TIME
         type: SECRET
