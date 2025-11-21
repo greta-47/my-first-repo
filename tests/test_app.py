@@ -170,7 +170,7 @@ def test_health_and_ready_check_database_connectivity(client):
 
 
 def test_health_and_ready_fail_when_database_unreachable(monkeypatch, client):
-    import app.main as main
+    import app.database
 
     class BrokenSession:
         def __enter__(self):
@@ -179,7 +179,7 @@ def test_health_and_ready_fail_when_database_unreachable(monkeypatch, client):
         def __exit__(self, exc_type, exc_val, exc_tb):  # pragma: no cover - cleanup
             return False
 
-    monkeypatch.setattr(main, "SessionLocal", lambda: BrokenSession())
+    monkeypatch.setattr(app.database, "SessionLocal", lambda: BrokenSession())
 
     health = client.get("/healthz")
     assert health.status_code == 503
@@ -190,6 +190,7 @@ def test_health_and_ready_fail_when_database_unreachable(monkeypatch, client):
     ready_body = ready.json()
     assert ready_body["ok"] is False
     assert "uptime_s" in ready_body
+
 
 # ---- Troubleshoot tests (keep) ----
 def test_troubleshoot_valid_issue_types(client):

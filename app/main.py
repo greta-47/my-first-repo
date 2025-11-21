@@ -30,7 +30,8 @@ from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 from starlette.responses import Response as StarletteResponse
 
-from app.database import SessionLocal, checkins_table, consents_table, create_tables
+import app.database as database
+from app.database import checkins_table, consents_table, create_tables
 from app.settings import settings
 from app.users import router as users_router
 
@@ -120,7 +121,7 @@ RATE_LIMIT = InMemoryRateLimiter(RateLimitConfig())
 
 
 def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
+    db = database.SessionLocal()
     try:
         yield db
     finally:
@@ -130,7 +131,7 @@ def get_db() -> Generator[Session, None, None]:
 def is_database_healthy() -> bool:
     """Return True if the database connection is healthy, False otherwise."""
     try:
-        with SessionLocal() as session:
+        with database.SessionLocal() as session:
             session.execute(select(1))
         return True
     except Exception as exc:  # pragma: no cover - defensive logging
