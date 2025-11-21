@@ -4,14 +4,14 @@ set -euo pipefail
 
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting migration job..."
 
+if [ "${DB_AUTO_MIGRATE:-false}" = "true" ] && [ -z "${DATABASE_URL:-}" ]; then
+    echo "[ERROR] DB_AUTO_MIGRATE=true but DATABASE_URL is not set"
+    exit 1
+fi
+
 if [ "${DB_AUTO_MIGRATE:-false}" != "true" ]; then
     echo "[INFO] DB_AUTO_MIGRATE!=true; skipping migrations (set DB_AUTO_MIGRATE=true to enable)"
     exit 0
-fi
-
-if [ -z "${DATABASE_URL:-}" ]; then
-    echo "[ERROR] DATABASE_URL environment variable is not set"
-    exit 1
 fi
 
 echo "[INFO] Database URL configured (connection string redacted for security)"
@@ -20,7 +20,7 @@ MAX_RETRIES=10
 RETRY_COUNT=0
 INITIAL_DELAY=2
 MAX_DELAY=10
-TOTAL_TIMEOUT=120
+TOTAL_TIMEOUT=180
 START_TIME=$(date +%s)
 
 check_db_connectivity() {

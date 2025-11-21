@@ -34,7 +34,7 @@ services:
       - key: STRICT_STARTUP
         value: "false"
       - key: DB_AUTO_MIGRATE
-        value: "true"
+        value: "false"
       - key: REQUEST_LOG_REDACT
         value: "true"
       - key: DEIDENTIFY_DEFAULT
@@ -95,7 +95,7 @@ jobs:
       - key: APP_ENV
         value: production
       - key: DB_AUTO_MIGRATE
-        value: "true"
+        value: "false"
       - key: DATABASE_URL
         scope: RUN_TIME
         type: SECRET
