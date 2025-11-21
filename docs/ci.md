@@ -298,7 +298,7 @@ health_check:
 - Considers deployment healthy after 1 successful check
 - Marks deployment failed after 3 consecutive failures
 
-**Alignment with FastAPI**: The FastAPI app listens on `0.0.0.0:8000` and exposes `/healthz` endpoint that returns `"ok"` with 200 status.
+**Alignment with FastAPI**: The FastAPI app listens on `0.0.0.0:8000` and exposes `/healthz`, which now asserts database connectivity and returns HTTP 503 if the DB is unavailable.
 
 ## Migration Strategy
 

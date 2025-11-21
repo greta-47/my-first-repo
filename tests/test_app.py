@@ -159,6 +159,38 @@ def test_metrics_endpoint_format_and_prometheus_compliance(client):
     assert "app_checkins_total " in text
 
 
+def test_health_and_ready_check_database_connectivity(client):
+    health = client.get("/healthz")
+    assert health.status_code == 200
+    assert health.text == "ok"
+
+    ready = client.get("/readyz")
+    assert ready.status_code == 200
+    assert ready.json()["ok"] is True
+
+
+def test_health_and_ready_fail_when_database_unreachable(monkeypatch, client):
+    import app.main as main
+
+    class BrokenSession:
+        def __enter__(self):
+            raise RuntimeError("db down")
+
+        def __exit__(self, exc_type, exc_val, exc_tb):  # pragma: no cover - cleanup
+            return False
+
+    monkeypatch.setattr(main, "SessionLocal", lambda: BrokenSession())
+
+    health = client.get("/healthz")
+    assert health.status_code == 503
+    assert "database_unavailable" in health.text
+
+    ready = client.get("/readyz")
+    assert ready.status_code == 503
+    ready_body = ready.json()
+    assert ready_body["ok"] is False
+    assert "uptime_s" in ready_body
+
 # ---- Troubleshoot tests (keep) ----
 def test_troubleshoot_valid_issue_types(client):
     valid_issues = ["login", "check-in", "consent", "network"]

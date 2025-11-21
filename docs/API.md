@@ -131,8 +131,8 @@ The following endpoints are implemented and available:
 - `POST /check-in` - Submit check-in data for risk scoring
 - `POST /consents` - Record user consent
 - `GET /consents/{user_id}` - Retrieve consent record
-- `GET /healthz` - Health check endpoint  
-- `GET /readyz` - Readiness check endpoint
+- `GET /healthz` - Health check endpoint (fails if database is unavailable)
+- `GET /readyz` - Readiness check endpoint (includes DB status)
 - `GET /metrics` - Prometheus metrics endpoint
 - `GET /help` - API help and troubleshooting
 - `POST /troubleshoot` - Get troubleshooting guidance

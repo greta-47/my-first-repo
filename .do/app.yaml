@@ -32,7 +32,7 @@ services:
       - key: DEBUG
         value: "false"
       - key: STRICT_STARTUP
-        value: "false"
+        value: "true"
       - key: DB_AUTO_MIGRATE
         value: "false"
       - key: REQUEST_LOG_REDACT
@@ -94,6 +94,8 @@ jobs:
     envs:
       - key: APP_ENV
         value: production
+      - key: STRICT_STARTUP
+        value: "true"
       - key: DB_AUTO_MIGRATE
         value: "false"
       - key: DATABASE_URL

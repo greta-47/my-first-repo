@@ -127,6 +127,17 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def is_database_healthy() -> bool:
+    """Return True if the database connection is healthy, False otherwise."""
+    try:
+        with SessionLocal() as session:
+            session.execute(select(1))
+        return True
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("database_unhealthy %s", exc)
+        return False
+
+
 def anon_key(ip: str, ua: str) -> str:
     """
     Derive an anonymous, deterministic rate-limit key from IP/UA **without** logging them.
@@ -684,12 +695,20 @@ async def rate_limit_middleware(
 
 @app.get("/healthz")
 async def healthz() -> PlainTextResponse:
-    return PlainTextResponse("ok")
+    db_ok = is_database_healthy()
+    status_code = status.HTTP_200_OK if db_ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    body = "ok" if db_ok else "database_unavailable"
+    return PlainTextResponse(body, status_code=status_code)
 
 
 @app.get("/readyz")
 async def readyz() -> JSONResponse:
-    return JSONResponse({"ok": True, "uptime_s": int(time.time() - APP_START_TS)})
+    db_ok = is_database_healthy()
+    status_code = status.HTTP_200_OK if db_ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(
+        {"ok": db_ok, "uptime_s": int(time.time() - APP_START_TS)},
+        status_code=status_code,
+    )
 
 
 @app.get("/metrics")

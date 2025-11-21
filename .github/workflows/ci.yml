@@ -9,6 +9,9 @@ on:
 jobs:
   lint-test:
     runs-on: ubuntu-latest
+    env:
+      STRICT_STARTUP: "true"
+      DB_AUTO_MIGRATE: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
