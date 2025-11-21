@@ -20,4 +20,4 @@ exclude_lines = ["pragma: no cover", "def __repr__", "raise NotImplementedError"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-v --cov=app --cov-report=term-missing"
+addopts = "-v"
