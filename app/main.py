@@ -15,7 +15,6 @@ from typing import (
     Callable,
     Deque,
     Dict,
-    Generator,
     List,
     Literal,
     Optional,
@@ -30,7 +29,7 @@ from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 from starlette.responses import Response as StarletteResponse
 
-from app.database import SessionLocal, checkins_table, consents_table, create_tables
+from app.database import checkins_table, consents_table, create_tables, get_db
 from app.settings import settings
 from app.users import router as users_router
 
@@ -117,14 +116,6 @@ class InMemoryRateLimiter:
 
 
 RATE_LIMIT = InMemoryRateLimiter(RateLimitConfig())
-
-
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def anon_key(ip: str, ua: str) -> str:
@@ -740,12 +731,28 @@ async def post_consents(payload: ConsentPayload, db: Session = Depends(get_db)) 
         recorded_at=iso_now(),
     )
 
-    stmt = insert(consents_table).values(
-        user_id=rec.user_id,
-        terms_version=rec.terms_version,
-        accepted=rec.accepted,
-        recorded_at=rec.recorded_at,
-    )
+    existing = db.execute(
+        select(consents_table).where(consents_table.c.user_id == rec.user_id)
+    ).fetchone()
+
+    if existing:
+        stmt = (
+            consents_table.update()
+            .where(consents_table.c.user_id == rec.user_id)
+            .values(
+                terms_version=rec.terms_version,
+                accepted=rec.accepted,
+                recorded_at=rec.recorded_at,
+            )
+        )
+    else:
+        stmt = insert(consents_table).values(
+            user_id=rec.user_id,
+            terms_version=rec.terms_version,
+            accepted=rec.accepted,
+            recorded_at=rec.recorded_at,
+        )
+
     db.execute(stmt)
     db.commit()
 

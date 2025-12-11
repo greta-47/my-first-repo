@@ -95,7 +95,7 @@ jobs:
       - key: APP_ENV
         value: production
       - key: DB_AUTO_MIGRATE
-        value: "false"
+        value: "true"
       - key: DATABASE_URL
         scope: RUN_TIME
         type: SECRET
