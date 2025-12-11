@@ -56,13 +56,15 @@ async def create_user(
 
     created_at = datetime.now(timezone.utc).isoformat()
 
-    insert_stmt = insert(users_table).values(
-        email=user.email, full_name=user.full_name, created_at=created_at, is_active=1
+    insert_stmt = (
+        insert(users_table)
+        .values(email=user.email, full_name=user.full_name, created_at=created_at, is_active=1)
+        .returning(users_table.c.id)
     )
 
     result = db.execute(insert_stmt)
+    user_id = result.scalar_one()
     db.commit()
-    user_id = result.inserted_primary_key[0]
 
     return UserResponse(
         id=user_id,

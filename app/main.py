@@ -736,7 +736,7 @@ async def post_consents(payload: ConsentPayload, db: Session = Depends(get_db)) 
     ).fetchone()
 
     if existing:
-        stmt = (
+        db.execute(
             consents_table.update()
             .where(consents_table.c.user_id == rec.user_id)
             .values(
@@ -746,14 +746,15 @@ async def post_consents(payload: ConsentPayload, db: Session = Depends(get_db)) 
             )
         )
     else:
-        stmt = insert(consents_table).values(
-            user_id=rec.user_id,
-            terms_version=rec.terms_version,
-            accepted=rec.accepted,
-            recorded_at=rec.recorded_at,
+        db.execute(
+            insert(consents_table).values(
+                user_id=rec.user_id,
+                terms_version=rec.terms_version,
+                accepted=rec.accepted,
+                recorded_at=rec.recorded_at,
+            )
         )
 
-    db.execute(stmt)
     db.commit()
 
     logger.info("consent_recorded")
