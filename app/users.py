@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Generator, List
+from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -8,7 +8,7 @@ from sqlalchemy import Column, Integer, String, Table, insert, select
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.database import SessionLocal, engine, metadata
+from app.database import get_db, metadata
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -20,6 +20,7 @@ users_table = Table(
     Column("full_name", String, nullable=True),
     Column("created_at", String, nullable=False),
     Column("is_active", Integer, default=1, nullable=False),
+    extend_existing=True,
 )
 
 
@@ -36,12 +37,7 @@ class UserResponse(BaseModel):
     is_active: bool
 
 
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# get_db is now imported from app.database
 
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -51,8 +47,7 @@ async def create_user(
     from datetime import datetime, timezone
 
     stmt = select(users_table).where(users_table.c.email == user.email)
-    with engine.connect() as conn:
-        existing = conn.execute(stmt).fetchone()
+    existing = db.execute(stmt).fetchone()
 
     if existing:
         raise HTTPException(
@@ -61,14 +56,15 @@ async def create_user(
 
     created_at = datetime.now(timezone.utc).isoformat()
 
-    insert_stmt = insert(users_table).values(
-        email=user.email, full_name=user.full_name, created_at=created_at, is_active=1
+    insert_stmt = (
+        insert(users_table)
+        .values(email=user.email, full_name=user.full_name, created_at=created_at, is_active=1)
+        .returning(users_table.c.id)
     )
 
-    with engine.connect() as conn:
-        result = conn.execute(insert_stmt)
-        conn.commit()
-        user_id = result.inserted_primary_key[0]
+    result = db.execute(insert_stmt)
+    user_id = result.scalar_one()
+    db.commit()
 
     return UserResponse(
         id=user_id,
@@ -89,9 +85,7 @@ async def list_users(
     db: Session = Depends(get_db), current_user: Dict = Depends(get_current_user)
 ) -> List[UserResponse]:
     stmt = select(users_table).order_by(users_table.c.created_at.desc())
-
-    with engine.connect() as conn:
-        rows = conn.execute(stmt).fetchall()
+    rows = db.execute(stmt).fetchall()
 
     return [
         UserResponse(
@@ -110,9 +104,7 @@ async def get_user(
     user_id: int, db: Session = Depends(get_db), current_user: Dict = Depends(get_current_user)
 ) -> UserResponse:
     stmt = select(users_table).where(users_table.c.id == user_id)
-
-    with engine.connect() as conn:
-        row = conn.execute(stmt).fetchone()
+    row = db.execute(stmt).fetchone()
 
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")

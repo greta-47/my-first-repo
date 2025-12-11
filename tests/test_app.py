@@ -32,22 +32,18 @@ def client():
     """Create a test client with clean database for each test."""
     import app.database
     import app.main
-    import app.users
+    from app.database import get_db
     from app.main import app as fastapi_app
-    from app.main import get_db
 
     # Override the engine references BEFORE creating TestClient
     original_engine_ref = app.database.engine
     original_sessionlocal_ref = app.database.SessionLocal
-    original_users_engine_ref = app.users.engine
 
     app.database.engine = test_engine
     app.database.SessionLocal = TestSessionLocal
-    app.main.engine = test_engine
-    app.users.engine = test_engine
 
     def override_get_db():
-        db = app.database.SessionLocal()
+        db = TestSessionLocal()
         try:
             yield db
         finally:
@@ -61,8 +57,6 @@ def client():
     fastapi_app.dependency_overrides.clear()
     app.database.engine = original_engine_ref
     app.database.SessionLocal = original_sessionlocal_ref
-    app.main.engine = original_engine_ref
-    app.users.engine = original_users_engine_ref
 
 
 def test_insufficient_data_before_three_checkins(client):
